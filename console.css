@@ -115,3 +115,6 @@ html{scroll-behavior:auto}
 }
 @media (forced-colors:active){.ico{forced-color-adjust:none;background:CanvasText}.pill .ico{background:ButtonText}.dot{forced-color-adjust:none;background:GrayText}.dot.on{background:Highlight}}
 @media (max-width:380px){.wrap{padding:0 12px}.box{padding-left:12px;gap:.35rem}.ico--spark{left:12px}.pill{padding:0 12px 0 14px}}
+
+.md img.av{width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin:0 .4em 0 0;background:var(--line,#e5e7eb)}
+.md li img.av{margin:.1em .45em .1em 0}

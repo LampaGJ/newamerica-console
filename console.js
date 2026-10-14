@@ -192,9 +192,13 @@ var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
 function grow(){var q=$("q");if(AUTO){q.style.height="";return}q.style.height="auto";q.style.height=Math.min(q.scrollHeight,112)+"px"}
 // Minimal markdown: paragraphs, bullets, **bold**; [n] becomes a superscript link to Sources entry n. All text is escaped via textContent.
 function inline(parent,s,cites){
-  var re=/(\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
+  var re=/(!\[[^\]]*\]\([^)\s]+\)|\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
   parts.forEach(function(p){
     if(!p)return;
+    var im=p.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    if(im){if(safeUrl(im[2])){var i=el("img","av");i.src=im[2];i.alt=im[1]||"";i.loading="lazy";i.referrerPolicy="no-referrer";parent.appendChild(i)}return}
+    var lk=p.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+    if(lk){if(safeUrl(lk[2]))parent.appendChild(link(lk[1],lk[2]));else parent.appendChild(document.createTextNode(lk[1]));return}
     if(/^\*\*.+\*\*$/.test(p)){parent.appendChild(el("strong",null,p.slice(2,-2)));return}
     var m=p.match(/^\[(\d+)\]$/);
     if(m&&cites[m[1]]){var sup=el("sup"),a=el("a",null,"["+m[1]+"]");a.href="#src-"+m[1];a.onclick=function(ev){ev.preventDefault();var t=document.getElementById("src-"+m[1]);if(t)t.scrollIntoView({block:"center",behavior:"smooth"})};sup.appendChild(a);parent.appendChild(sup);return}
@@ -269,6 +273,7 @@ async function run(){
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
     if(d.kind==="help")renderHelp(d,r.text,out);
+    else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc)}
     else{
       renderAnswer(d,q,out);
       var card=out.lastChild;
