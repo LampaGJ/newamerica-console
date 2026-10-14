@@ -181,7 +181,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What has New America published this month on early childhood education?","Reports from the Open Technology Institute on broadband affordability since 2023","Who at New America writes about housing policy?","Summarize recent work on AI and elections, newest first"];
+var STARTERS=["What has New America published this month on early childhood education?","Reports from the Open Technology Institute on broadband affordability since 2023","Who at New America writes about housing policy?","Where does New America get its funding?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
