@@ -3,3 +3,5 @@ https://www.apache.org/licenses/LICENSE-2.0
 Sources (google/material-design-icons, Material Symbols Rounded, 24px, weight 400):
 sparkle.svg = https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/auto_awesome/materialsymbolsrounded/auto_awesome_24px.svg
 send.svg    = https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/send/materialsymbolsrounded/send_24px.svg
+thumb_up.svg = https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/thumb_up/materialsymbolsrounded/thumb_up_24px.svg
+thumb_down.svg = https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/thumb_down/materialsymbolsrounded/thumb_down_24px.svg

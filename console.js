@@ -274,6 +274,49 @@ function moreSources(card,q){
     catch(e){e=netErr(e);slot.textContent=e.msg}
   };
 }
+function fnvHex(t){
+  var out="",h=2166136261;
+  for(var r=0;r<8;r++){
+    for(var i=0;i<t.length;i++){h^=t.charCodeAt(i)+r;h=Math.imul(h,16777619)>>>0}
+    out+=("00000000"+h.toString(16)).slice(-8);
+  }
+  return out;
+}
+async function sha256Hex(text){
+  try{
+    if(window.crypto&&crypto.subtle&&window.TextEncoder){
+      var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
+      return Array.prototype.map.call(new Uint8Array(buf),function(b){return ("0"+b.toString(16)).slice(-2)}).join("");
+    }
+  }catch(e){}
+  return fnvHex(String(text));
+}
+function ratingPill(card,ctx){
+  card.classList.add("has-rate");
+  var pill=el("div","rate");pill.setAttribute("role","group");pill.setAttribute("aria-label","Rate this answer");
+  var up=el("button","rate-btn rate-up");up.type="button";up.setAttribute("aria-label","Good answer");up.setAttribute("aria-pressed","false");up.appendChild(el("span","ico ico--up"));
+  var down=el("button","rate-btn rate-down");down.type="button";down.setAttribute("aria-label","Poor answer");down.setAttribute("aria-pressed","false");down.appendChild(el("span","ico ico--down"));
+  var thanks=el("span","rate-thanks");thanks.setAttribute("role","status");
+  var err=null;
+  pill.appendChild(up);pill.appendChild(down);pill.appendChild(thanks);
+  async function rate(btn,rating){
+    if(btn.disabled)return;
+    up.disabled=down.disabled=true;
+    if(err){err.remove();err=null}
+    try{
+      if(!ctx.sha)ctx.sha=await sha256Hex(ctx.text||"");
+      await tool("rate_answer",{request:ctx.request,rating:rating,answer_sha256:ctx.sha});
+      btn.setAttribute("aria-pressed","true");pill.classList.add("rated");
+      thanks.textContent="Thanks";
+    }catch(e){
+      e=netErr(e);up.disabled=down.disabled=false;
+      err=el("div","meta rate-err",e.msg);card.insertBefore(err,pill);
+    }
+  }
+  up.onclick=function(){rate(up,"up")};
+  down.onclick=function(){rate(down,"down")};
+  card.appendChild(pill);
+}
 async function run(){
   var q=$("q").value.trim();if(!q)return;
   if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
@@ -287,14 +330,15 @@ async function run(){
     var r=await tool("answer",{request:q});
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
-    if(d.kind==="help")renderHelp(d,r.text,out);
-    else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc)}
+    if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
     else{
       renderAnswer(d,q,out);
       var card=out.lastChild;
       var sh=card.querySelector("ol.srcs");
       if(sh&&sh.previousSibling)sh.previousSibling.textContent="Sources ("+(d.citations||[]).length+")";
       moreSources(card,q);
+      ratingPill(card,{request:q,text:String(d.answer||"")});
     }
     settle(t,"done");
   }catch(e){

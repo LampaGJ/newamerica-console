@@ -41,7 +41,24 @@ code,pre{overflow-wrap:anywhere}pre{max-width:100%;white-space:pre-wrap}
 .welcome{margin:1.5rem 0}.welcome h2{border:0;margin:0 0 .3rem}
 .stage{font-size:.85rem;color:var(--warn);margin:.4rem 0}
 .more{margin-top:.8rem}.more summary{font-weight:600}
-.card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:.5rem 1rem 1rem}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:1.1rem 1.4rem 1.3rem}
+.card.has-rate{position:relative;padding-bottom:3.1rem}
+.rate{position:absolute;right:12px;bottom:10px;display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--line);border-radius:999px;background:var(--bg)}
+.rate-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--mut);transition:background-color .15s,color .15s}
+.rate-btn:hover:not(:disabled){background:var(--card);color:var(--fg)}
+.rate-btn:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.rate-btn:disabled{opacity:1;cursor:default}
+.rate-btn:disabled[aria-pressed=false]{opacity:.45}
+.rate-btn[aria-pressed=true]{color:var(--acc)}
+.ico--up{--m:url(icons/thumb_up.svg);width:18px;height:18px}
+.ico--down{--m:url(icons/thumb_down.svg);width:18px;height:18px}
+.rate-btn[aria-pressed=true] .ico{background:var(--acc)}
+.rate-thanks{font-size:.8rem;color:var(--mut);padding:0 8px 0 4px}
+.rate-thanks:empty{display:none}
+.rate.rated .rate-thanks{animation:ratePop .2s ease-out}
+.rate-err{margin-top:.6rem;color:var(--err)}
+@keyframes ratePop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+@media (pointer:coarse){.rate-btn{width:44px;height:44px}.card.has-rate{padding-bottom:4.2rem}}
 .card h4{margin:1rem 0 .3rem;font-size:1rem}
 .md{line-height:1.4}
 .md p{margin:0 0 1em;line-height:1.4}.md>p:first-child{margin-top:0}.md>p:last-child{margin-bottom:0}
@@ -113,7 +130,7 @@ html{scroll-behavior:auto}
 .dots i{opacity:.7}
 .box.busy .ico--spark{opacity:.6}
 }
-@media (forced-colors:active){.ico{forced-color-adjust:none;background:CanvasText}.pill .ico{background:ButtonText}.dot{forced-color-adjust:none;background:GrayText}.dot.on{background:Highlight}}
+@media (forced-colors:active){.ico{forced-color-adjust:none;background:CanvasText}.pill .ico{background:ButtonText}.rate-btn .ico{background:ButtonText}.rate-btn[aria-pressed=true] .ico{background:Highlight}.dot{forced-color-adjust:none;background:GrayText}.dot.on{background:Highlight}}
 @media (max-width:380px){.wrap{padding:0 12px}.box{padding-left:12px;gap:.35rem}.ico--spark{left:12px}.pill{padding:0 12px 0 14px}}
 
 .md img.av{width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin:0 .4em 0 0;background:var(--line,#e5e7eb)}
