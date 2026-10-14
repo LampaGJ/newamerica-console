@@ -98,6 +98,10 @@ function renderCorpus(c,out){
     g.items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
   });
 }
+function blurbs(parent,o){
+  if(o&&typeof o.why==="string"&&o.why.trim())parent.appendChild(el("p","why",o.why.trim()));
+  if(o&&typeof o.blurb==="string"&&o.blurb.trim())parent.appendChild(el("p","blurb",o.blurb.trim()));
+}
 function item(it){
   var d=el('article','item');
   d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')+(it.program?' · '+it.program:'')));
@@ -115,6 +119,7 @@ function item(it){
       a.appendChild(s);
     });d.appendChild(a);
   }
+  blurbs(d,it);
   var t=it.tags||{},tg=el('div','tags');
   ['types','programs','topics','issues','projects'].forEach(function(k){(t[k]||[]).forEach(function(v){tg.appendChild(el('span',null,typeof v==='string'?v:(v.name||v.title||'')))})});
   if(tg.childNodes.length)d.appendChild(tg);
@@ -212,7 +217,7 @@ function md(text,cites){
 function renderAnswer(d,q,out){
   var cites={};(d.citations||[]).forEach(function(c){cites[c.n]=c});
   // drop the model's own trailing Sources list; the structured one below is authoritative
-  var body=String(d.answer||"").replace(/\n+#{0,6}\s*\**Sources\**:?\s*\n[\s\S]*$/i,"");
+  var body=String(d.answer||"").replace(/\n+[ \t]*(?:#{1,6}[ \t]*)?\**[ \t]*Sources[ \t]*:?[ \t]*\**[ \t]*:?[ \t]*\n[\s\S]*$/i,"");
   var card=el("article","card");
   card.appendChild(md(body,cites));
   if(d.citations&&d.citations.length){
@@ -225,6 +230,7 @@ function renderAnswer(d,q,out){
       var au=(c.authorDetails||[]);
       if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
       else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
+      blurbs(li,c);
       ol.appendChild(li);
     });card.appendChild(ol);
   }

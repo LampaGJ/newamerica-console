@@ -43,7 +43,14 @@ code,pre{overflow-wrap:anywhere}pre{max-width:100%;white-space:pre-wrap}
 .more{margin-top:.8rem}.more summary{font-weight:600}
 .card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:.5rem 1rem 1rem}
 .card h4{margin:1rem 0 .3rem;font-size:1rem}
-.md p{margin:.6rem 0}.md ul{margin:.4rem 0;padding-left:1.3rem}
+.md{line-height:1.4}
+.md p{margin:0 0 1em;line-height:1.4}.md>p:first-child{margin-top:0}.md>p:last-child{margin-bottom:0}
+.md ul{margin:0 0 1em;padding-left:1.3rem}.md ul:last-child{margin-bottom:0}
+.md li{line-height:1.4;margin:0 0 .45em}.md li:last-child{margin-bottom:0}
+.md h4{margin:1.3em 0 .35em;line-height:1.3}.md>h4:first-child{margin-top:0}
+.why,.blurb{margin:0;overflow-wrap:anywhere;line-height:1.4}
+.why{font-size:14px;color:color-mix(in srgb,var(--mut) 55%,var(--fg));margin:.25em 0 0}
+.blurb{font-size:13.5px;color:var(--mut);margin:.2em 0 0}
 sup a{text-decoration:none;font-weight:600}
 .srcs{padding-left:1.6rem;margin:.3rem 0}.srcs li{margin:.6rem 0;padding-left:.2rem}
 .st{font-weight:600}
