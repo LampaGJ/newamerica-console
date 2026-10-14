@@ -5,7 +5,7 @@ var TIERS={1:'Authoritative',2:'Analysis',3:'Supporting',4:'Peripheral'};
 var PROTO='2025-06-18';
 var sess=null,rid=1,busy=null,connKey='';
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localStorage.setItem(k,v)}catch(e){return ''}}
-$('server').value=ls('na.server');$('token').value=ls('na.token');
+$('server').value=ls('na.server')||'https://macstudio.tarpan-woodpecker.ts.net/newamerica';$('token').value=ls('na.token');
 if(!$('server').value)$('settings').open=true;
 function save(){ls('na.server',$('server').value.trim());ls('na.token',$('token').value.trim())}
 $('server').onchange=$('token').onchange=function(){save();sess=null};
