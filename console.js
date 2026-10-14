@@ -99,7 +99,7 @@ function renderCorpus(c){
 }
 function item(it){
   var d=el('article','item');
-  d.appendChild(el('div','meta',(it.date||'undated')+(it.label?' · '+it.label:'')+(it.program?' · '+it.program:'')));
+  d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')+(it.program?' · '+it.program:'')));
   var h=el('h3');h.appendChild(link(it.title||'(untitled)',it.url));
   if(it.external)h.appendChild(el('span','badge','(coverage)'));
   d.appendChild(h);
