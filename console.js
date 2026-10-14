@@ -16,12 +16,10 @@ function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localSt
   if(srv)ls('na.server',srv.trim());
   if(tok||srv){try{history.replaceState(null,'',location.pathname)}catch(e){}}
 })();
-$('server').value=ls('na.server')||'https://macstudio.tarpan-woodpecker.ts.net/newamerica';$('token').value=ls('na.token');
-if(!$('server').value)$('settings').open=true;
-function save(){ls('na.server',$('server').value.trim());ls('na.token',$('token').value.trim())}
-$('server').onchange=$('token').onchange=function(){save();sess=null};
-function base(){return $('server').value.trim().replace(/\/+$/,'')}
-function setStatus(t,cls){var s=$('status');s.className=cls||'';s.textContent=t||''}
+var DEFAULT_SERVER='https://macstudio.tarpan-woodpecker.ts.net/newamerica';
+function token(){return ls('na.token')}
+function base(){return (ls('na.server')||DEFAULT_SERVER).trim().replace(/\/+$/,'')}
+function setStatus(){}
 function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function safeUrl(u){return /^https?:\/\//i.test(u||'')?u:null}
 function link(txt,u){var h=safeUrl(u);if(!h)return document.createTextNode(txt);var a=el('a',null,txt);a.href=h;a.target='_blank';a.rel='noopener noreferrer';return a}
@@ -33,11 +31,11 @@ function netErr(e){
 async function http(path,opts){
   var r;
   try{r=await fetch(base()+path,opts)}catch(e){throw netErr(e)}
-  if(r.status===401||r.status===403)throw {kind:'auth',msg:'The server rejected the token (HTTP '+r.status+'). Check the token in Settings.'};
+  if(r.status===401||r.status===403)throw {kind:'auth',msg:'The server rejected the token (HTTP '+r.status+'). Paste a fresh access link.'};
   return r;
 }
 function hdrs(){
-  var h={'Authorization':'Bearer '+$('token').value.trim(),'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-protocol-version':PROTO};
+  var h={'Authorization':'Bearer '+token(),'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-protocol-version':PROTO};
   if(sess)h['mcp-session-id']=sess;return h;
 }
 async function rpc(body,isNote){
@@ -55,7 +53,7 @@ async function rpc(body,isNote){
   return j.result;
 }
 async function init(){
-  var key=base()+'|'+$('token').value;
+  var key=base()+'|'+token();
   if(sess&&key===connKey)return;
   sess=null;connKey=key;
   try{
@@ -71,20 +69,24 @@ async function tool(name,args){
   return {data:res&&res.structuredContent,text:txt};
 }
 
-$('test').onclick=async function(){
-  save();var o=$('testout');o.textContent='Testing...';
-  try{
-    var r=await http('/healthz');var h=await r.json();
-    var s='healthz OK: '+h.documents+' documents, '+h.tier1+' tier-1, cursor '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+'h':'?')+' old'+(h.watch_running?', watcher running':', watcher stopped');
-    sess=null;connKey='';await init();o.textContent=s+'; MCP session OK.';
-  }catch(e){e=netErr(e);o.textContent=e.msg}
-};
-
-function freshness(){
+function health(){
+  var d=$('dot');
   http('/healthz').then(function(r){return r.json()}).then(function(h){
-    if(h&&h.cursor_age_hours>48)setStatus('Index is '+Math.round(h.cursor_age_hours)+' hours behind newamerica.org; newer items may be missing.','busy');
-  }).catch(function(){});
+    d.className='dot on';
+    d.title='Connected: '+h.documents+' documents, '+h.tier1+' tier-1, synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
+  }).catch(function(){d.className='dot';d.title='Offline: cannot reach '+base()});
 }
+// Accept a full share link (#token=...&server=...) or a bare token.
+function connectFrom(v){
+  v=(v||'').trim();if(!v)return false;
+  var tok=v,srv='';
+  try{var u=new URL(v);var p=new URLSearchParams((u.hash||'').replace(/^#/,''));var q=u.searchParams;
+    tok=p.get('token')||q.get('token')||'';srv=p.get('server')||q.get('server')||''}catch(e){}
+  if(!tok)return false;
+  ls('na.token',tok.trim());if(srv)ls('na.server',srv.trim());sess=null;connKey='';return true;
+}
+function gate(){$('connect').hidden=!!token()}
+$('paste').onchange=$('paste').oninput=function(){if(connectFrom($('paste').value)){$('paste').value='';gate();health();$('q').focus()}};
 
 function renderCorpus(c,out){
   var groups=(c&&c.groups)||[];
@@ -145,13 +147,31 @@ function item(it){
   return d;
 }
 
-var answerOff=false;
 function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
 function turn(q){
-  var t=el("section","turn"),b=el("div","q",q),body=el("div","res");
-  t.appendChild(b);t.appendChild(body);$("out").appendChild(t);
-  t.scrollIntoView({block:"start",behavior:"smooth"});return body;
+  var w=$("welcome");if(w)w.remove();
+  var u=el("div","msg user",q);
+  var a=el("article","msg assistant");a.dataset.state="pending";
+  var stage=el("div","stage"),body=el("div","body");
+  a.appendChild(stage);a.appendChild(body);
+  $("out").appendChild(u);$("out").appendChild(a);
+  u.scrollIntoView({block:"start",behavior:"smooth"});
+  return {card:a,stage:stage,body:body};
 }
+function fill(text){var q=$("q");q.value=text;grow();q.focus()}
+function chips(list){
+  var box=el("div","chips");
+  list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
+  return box;
+}
+var STARTERS=["What has New America published this month on early childhood education?","Reports from the Open Technology Institute on broadband affordability since 2023","Who at New America writes about housing policy?","Summarize recent work on AI and elections, newest first"];
+function welcome(){
+  var w=el("section","welcome");w.id="welcome";
+  w.appendChild(el("h2",null,"What would you like to know?"));
+  w.appendChild(el("p","meta","Ask in plain words. I search New America publications and write a short answer with sources. Type help to see what I can do."));
+  w.appendChild(chips(STARTERS));$("out").appendChild(w);
+}
+function grow(){var q=$("q");q.style.height="auto";q.style.height=Math.min(q.scrollHeight,104)+"px"}
 // Minimal markdown: paragraphs, bullets, **bold**; [n] becomes a superscript link to Sources entry n. All text is escaped via textContent.
 function inline(parent,s,cites){
   var re=/(\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
@@ -199,40 +219,58 @@ function renderAnswer(d,q,out){
   card.appendChild(el("div","meta fine",(d.model||"model")+" · "+(u.input_tokens||0)+" in / "+(u.output_tokens||0)+" out tokens"));
   out.appendChild(card);
 }
-async function run(kind){
+function renderHelp(d,text,out){
+  var card=el("article","card");
+  card.appendChild(md(text||"",{}));
+  var ex=(d&&d.examples)||[];
+  if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
+  out.appendChild(card);
+}
+function moreSources(card,q){
+  var det=el("details","more"),sm=el("summary",null,"Show all sources"),slot=el("div");
+  det.appendChild(sm);det.appendChild(slot);card.appendChild(det);
+  var loaded=false;
+  det.ontoggle=async function(){
+    if(!det.open||loaded)return;
+    slot.textContent="Loading the ranked sources...";
+    try{var c=await tool("build_corpus",{request:q,max_docs:20});slot.textContent="";renderCorpus(c.data||{groups:[]},slot);loaded=true}
+    catch(e){e=netErr(e);slot.textContent=e.msg}
+  };
+}
+async function run(){
   var q=$("q").value.trim();if(!q)return;
-  if(busy){setStatus("Still working on: "+busy,"busy");return}
-  save();
-  if(!base()){$("settings").open=true;setStatus("Enter the server URL and token in Settings first.","err");return}
-  busy=q;$("q").value="";var out=turn(q);
-  $("go").disabled=$("answer").disabled=true;
+  if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
+  if(!token()){$("connect").hidden=false;$("paste").focus();return}
+  $("q").value="";grow();var t=turn(q);
+  t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
+  busy={q:q,stage:t.stage};$("go").disabled=true;
+  var out=t.body;
   try{
-    if(kind==="answer"){
-      setStatus("Reading the corpus and writing an answer (can take up to a minute)...","busy");
-      var r=await tool("answer",{request:q});
-      renderAnswer(r.data||{},q,out);
-      setStatus("Answered"+interp(r.data));
-    }else{
-      setStatus("Resolving terms...","busy");
-      var t=await tool("resolve_terms",{request:q});
-      var terms=Array.isArray(t.data)?t.data:(t.data&&(t.data.terms||t.data.result))||[];
-      var names=terms.map(function(x){return x.name}).filter(Boolean);
-      var tl="Terms: "+(names.length?names.join(" · "):"(none matched)");
-      setStatus(tl+" · building corpus...","busy");
-      var c=await tool("build_corpus",{request:q,max_docs:20});
-      renderCorpus(c.data||{groups:[]},out);
-      var n=((c.data&&c.data.groups)||[]).reduce(function(s,g){return s+(g.items||[]).length},0);
-      setStatus(tl+" · "+n+" documents"+interp(c.data));
+    var r=await tool("answer",{request:q});
+    var d=r.data||{};
+    t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
+    if(d.kind==="help")renderHelp(d,r.text,out);
+    else{
+      renderAnswer(d,q,out);
+      var card=out.lastChild;
+      var sh=card.querySelector("ol.srcs");
+      if(sh&&sh.previousSibling)sh.previousSibling.textContent="Sources ("+(d.citations||[]).length+")";
+      moreSources(card,q);
     }
+    t.card.dataset.state="done";
   }catch(e){
     e=netErr(e);
-    if(kind==="answer"&&/unavailable/i.test(e.msg)){answerOff=true;$("answer").hidden=true;out.appendChild(el("p","meta",e.msg))}
-    setStatus(e.msg,"err");
+    if(e.kind==="srv"&&/unavailable/i.test(e.msg)){
+      t.stage.textContent="The written answer is unavailable ("+e.msg+"). Showing the ranked sources instead.";
+      try{var c=await tool("build_corpus",{request:q,max_docs:20});renderCorpus(c.data||{groups:[]},out);t.card.dataset.state="done"}
+      catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));t.card.dataset.state="error"}
+    }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));t.card.dataset.state="error"}
   }
-  finally{busy=null;$("go").disabled=$("answer").disabled=false}
+  finally{busy=null;$("go").disabled=false}
 }
-$("ask").onsubmit=function(ev){ev.preventDefault();run("ask")};
-$("answer").onclick=function(){run("answer")};
-$("q").onkeydown=function(ev){if(ev.key==="Enter"&&(ev.metaKey||ev.ctrlKey)){ev.preventDefault();run("ask")}};
-if(base()&&$('token').value)freshness();
+$("ask").onsubmit=function(ev){ev.preventDefault();run()};
+$("q").oninput=grow;
+$("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
+gate();welcome();
+if(token())health();
 })();

@@ -5,31 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>New America research console</title>
-<link rel="stylesheet" href="console.css?v=6">
+<link rel="stylesheet" href="console.css?v=7">
 </head>
 <body>
-<header class="wrap">
-  <h1>New America research console</h1>
-  <p class="lede">Runs against an index of newamerica.org on the maintainer's machine; results link to the originals.</p>
-  <details id="settings">
-    <summary>Settings</summary>
-    <label>Server URL <input id="server" type="url" placeholder="https://your-host.ts.net/newamerica-mcp" autocomplete="off"></label>
-    <label>Token <input id="token" type="password" autocomplete="off"></label>
-    <div class="row"><button id="test" type="button">Test connection</button><span id="testout" role="status"></span></div>
-  </details>
-</header>
 <main class="wrap" id="out"></main>
 <footer class="composer">
   <div class="wrap">
-    <div id="status" role="status" aria-live="polite"></div>
+    <div id="connect" hidden><label for="paste">Paste your access link to begin</label><input id="paste" type="text" autocomplete="off" placeholder="Access link or token"></div>
     <form id="ask" class="ask">
       <label for="q" class="sr">Research question</label>
-      <textarea id="q" rows="2" placeholder="What has New America published on broadband affordability?"></textarea>
-      <button id="go" type="submit">Ask</button>
-      <button id="answer" type="button">Answer</button>
+      <div class="box">
+        <svg class="spark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+        <textarea id="q" rows="1" placeholder="Ask about New America research"></textarea>
+        <button id="go" type="submit">Go</button>
+      </div>
     </form>
+    <span id="dot" class="dot" role="status" title="Not connected"></span>
   </div>
 </footer>
-<script src="console.js?v=6"></script>
+<script src="console.js?v=7"></script>
 </body>
 </html>
