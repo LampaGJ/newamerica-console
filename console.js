@@ -5,6 +5,17 @@ var TIERS={1:'Authoritative',2:'Analysis',3:'Supporting',4:'Peripheral'};
 var PROTO='2025-06-18';
 var sess=null,rid=1,busy=null,connKey='';
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localStorage.setItem(k,v)}catch(e){return ''}}
+// A shareable link may carry the token (and server) in the URL: prefer the fragment (#token=...), which the
+// browser never sends to GitHub Pages or any log; ?token= is accepted too. Both are stored and then removed
+// from the address bar, so a copied URL afterwards does not leak the token.
+(function fromUrl(){
+  var p=new URLSearchParams((location.hash||'').replace(/^#/,''));
+  var q=new URLSearchParams(location.search);
+  var tok=p.get('token')||q.get('token'), srv=p.get('server')||q.get('server');
+  if(tok)ls('na.token',tok.trim());
+  if(srv)ls('na.server',srv.trim());
+  if(tok||srv){try{history.replaceState(null,'',location.pathname)}catch(e){}}
+})();
 $('server').value=ls('na.server')||'https://macstudio.tarpan-woodpecker.ts.net/newamerica';$('token').value=ls('na.token');
 if(!$('server').value)$('settings').open=true;
 function save(){ls('na.server',$('server').value.trim());ls('na.token',$('token').value.trim())}
