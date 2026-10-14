@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>New America research console</title>
-<link rel="stylesheet" href="console.css?v=12">
+<link rel="stylesheet" href="console.css?v=13">
 </head>
 <body>
 <main class="wrap" id="out"></main>
@@ -17,12 +17,13 @@
       <div class="box">
         <i class="ico ico--spark" aria-hidden="true"></i>
         <textarea id="q" rows="1" placeholder="Ask about New America research"></textarea>
-        <span id="dot" class="dot" role="status" title="Not connected"></span>
+        <span id="dot" class="dot" role="status" title="Checking the server"></span>
         <button id="go" class="pill" type="submit"><span>Ask</span><i class="ico ico--send" aria-hidden="true"></i></button>
       </div>
+      <p id="offline" class="offline-note" role="status" aria-live="polite" hidden></p>
     </form>
   </div>
 </footer>
-<script src="console.js?v=12"></script>
+<script src="console.js?v=13"></script>
 </body>
 </html>

@@ -118,3 +118,9 @@ html{scroll-behavior:auto}
 
 .md img.av{width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin:0 .4em 0 0;background:var(--line,#e5e7eb)}
 .md li img.av{margin:.1em .45em .1em 0}
+
+.dot.off{background:#c0392b}
+.box.off{opacity:.55;background:var(--line,#eef0f3);filter:grayscale(1)}
+.box.off textarea{cursor:not-allowed}
+.offline-note{margin:.4rem 0 0;font-size:13px;color:#8a2d22;text-align:center}
+@media (prefers-color-scheme:dark){.offline-note{color:#f0a195}}

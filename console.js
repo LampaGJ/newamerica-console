@@ -69,12 +69,25 @@ async function tool(name,args){
   return {data:res&&res.structuredContent,text:txt};
 }
 
+var OFFLINE_MSG="New America research is currently offline",offline=null,healthTimer=null;
+function setOffline(off,why){
+  if(offline===off)return;offline=off;
+  var q=$('q'),g=$('go'),box=$('ask').querySelector('.box'),note=$('offline');
+  document.body.classList.toggle('offline',off);
+  q.disabled=off;g.disabled=off||!!busy;box.classList.toggle('off',off);
+  if(off){q.dataset.ph=q.dataset.ph||q.placeholder;q.placeholder=OFFLINE_MSG;note.textContent=OFFLINE_MSG+(why?' ('+why+')':'')+'. Retrying every 30 seconds.';note.hidden=false}
+  else{if(q.dataset.ph)q.placeholder=q.dataset.ph;note.hidden=true;note.textContent=''}
+}
+// On load (and every 30 s) probe /healthz: a reachable API enables the composer, anything else grays it out.
 function health(){
   var d=$('dot');
-  http('/healthz').then(function(r){return r.json()}).then(function(h){
+  return http('/healthz').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(h){
+    if(!h||h.ok===false)throw new Error('unhealthy');
     d.className='dot on';
     d.title='Connected: '+h.documents+' documents, '+h.tier1+' tier-1, synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
-  }).catch(function(){d.className='dot';d.title='Offline: cannot reach '+base()});
+    setOffline(false);
+  }).catch(function(e){d.className='dot off';d.title='Offline: cannot reach '+base();setOffline(true,e&&e.message&&/HTTP/.test(e.message)?e.message:'')})
+  .finally(function(){clearTimeout(healthTimer);healthTimer=setTimeout(health,30000)});
 }
 // Accept a full share link (#token=...&server=...) or a bare token.
 function connectFrom(v){
@@ -263,6 +276,7 @@ function moreSources(card,q){
 async function run(){
   var q=$("q").value.trim();if(!q)return;
   if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
+  if(offline){health();return}
   if(!token()){$("connect").hidden=false;$("paste").focus();return}
   $("q").value="";grow();var t=turn(q);
   t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
@@ -290,12 +304,12 @@ async function run(){
       catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));settle(t,"error")}
     }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));settle(t,"error")}
   }
-  finally{busy=null;$("go").disabled=false;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
+  finally{busy=null;$("go").disabled=!!offline;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
 $("q").oninput=grow;
 $("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
 (function(){var f=document.querySelector(".composer"),r=document.documentElement;function m(){r.style.setProperty("--composer-h",f.offsetHeight+"px")}m();if(window.ResizeObserver)new ResizeObserver(m).observe(f);else window.addEventListener("resize",m)})();
 gate();welcome();
-if(token())health();
+health();
 })();
