@@ -86,8 +86,7 @@ function freshness(){
   }).catch(function(){});
 }
 
-function renderCorpus(c){
-  var out=$('out');out.textContent='';
+function renderCorpus(c,out){
   var groups=(c&&c.groups)||[];
   if(c&&c.window&&c.window.oldest){out.appendChild(el('p','meta','Covers '+c.window.oldest+' to '+c.window.newest+'.'))}
   if(!groups.length){out.appendChild(el('p',null,'No documents matched. Try different wording.'));return}
@@ -146,26 +145,94 @@ function item(it){
   return d;
 }
 
-$('ask').onsubmit=async function(ev){
-  ev.preventDefault();
-  var q=$('q').value.trim();if(!q)return;
-  if(busy){setStatus('Still working on: '+busy,'busy');return}
+var answerOff=false;
+function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
+function turn(q){
+  var t=el("section","turn"),b=el("div","q",q),body=el("div","res");
+  t.appendChild(b);t.appendChild(body);$("out").appendChild(t);
+  t.scrollIntoView({block:"start",behavior:"smooth"});return body;
+}
+// Minimal markdown: paragraphs, bullets, **bold**; [n] becomes a superscript link to Sources entry n. All text is escaped via textContent.
+function inline(parent,s,cites){
+  var re=/(\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
+  parts.forEach(function(p){
+    if(!p)return;
+    if(/^\*\*.+\*\*$/.test(p)){parent.appendChild(el("strong",null,p.slice(2,-2)));return}
+    var m=p.match(/^\[(\d+)\]$/);
+    if(m&&cites[m[1]]){var sup=el("sup"),a=el("a",null,"["+m[1]+"]");a.href="#src-"+m[1];a.onclick=function(ev){ev.preventDefault();var t=document.getElementById("src-"+m[1]);if(t)t.scrollIntoView({block:"center",behavior:"smooth"})};sup.appendChild(a);parent.appendChild(sup);return}
+    parent.appendChild(document.createTextNode(p));
+  });
+}
+function md(text,cites){
+  var box=el("div","md"),lines=String(text).replace(/\r/g,"").split("\n"),ul=null,para=[];
+  function flush(){if(para.length){var p=el("p");inline(p,para.join(" "),cites);box.appendChild(p);para=[]}}
+  lines.forEach(function(l){
+    var b=l.match(/^\s*[-*]\s+(.*)$/),h=l.match(/^#{1,6}\s+(.*)$/);
+    if(b){flush();if(!ul){ul=el("ul");box.appendChild(ul)}var li=el("li");inline(li,b[1],cites);ul.appendChild(li);return}
+    ul=null;
+    if(h){flush();var hh=el("h4");inline(hh,h[1],cites);box.appendChild(hh);return}
+    if(!l.trim()){flush();return}
+    para.push(l.trim());
+  });
+  flush();return box;
+}
+function renderAnswer(d,q,out){
+  var cites={};(d.citations||[]).forEach(function(c){cites[c.n]=c});
+  // drop the model's own trailing Sources list; the structured one below is authoritative
+  var body=String(d.answer||"").replace(/\n+#{0,6}\s*\**Sources\**:?\s*\n[\s\S]*$/i,"");
+  var card=el("article","card");
+  card.appendChild(md(body,cites));
+  if(d.citations&&d.citations.length){
+    card.appendChild(el("h4",null,"Sources"));
+    var ol=el("ol","srcs");
+    d.citations.forEach(function(c){
+      var li=el("li");li.id="src-"+c.n;li.value=c.n;
+      var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
+      li.appendChild(el("div","meta",[c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · ")));
+      var au=(c.authorDetails||[]);
+      if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
+      else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
+      ol.appendChild(li);
+    });card.appendChild(ol);
+  }
+  var u=d.usage||{};
+  card.appendChild(el("div","meta fine",(d.model||"model")+" · "+(u.input_tokens||0)+" in / "+(u.output_tokens||0)+" out tokens"));
+  out.appendChild(card);
+}
+async function run(kind){
+  var q=$("q").value.trim();if(!q)return;
+  if(busy){setStatus("Still working on: "+busy,"busy");return}
   save();
-  if(!base()){$('settings').open=true;setStatus('Enter the server URL and token in Settings first.','err');return}
-  busy=q;$('out').textContent='';
-  setStatus('Resolving terms...','busy');
+  if(!base()){$("settings").open=true;setStatus("Enter the server URL and token in Settings first.","err");return}
+  busy=q;$("q").value="";var out=turn(q);
+  $("go").disabled=$("answer").disabled=true;
   try{
-    var t=await tool('resolve_terms',{request:q});
-    var terms=Array.isArray(t.data)?t.data:(t.data&&(t.data.terms||t.data.result))||[];
-    var names=terms.map(function(x){return x.name}).filter(Boolean);
-    var tl='Terms: '+(names.length?names.join(' · '):'(none matched)');
-    setStatus(tl+' · building corpus...','busy');
-    var c=await tool('build_corpus',{request:q,max_docs:20});
-    renderCorpus(c.data||{groups:[]});
-    var n=((c.data&&c.data.groups)||[]).reduce(function(s,g){return s+(g.items||[]).length},0);
-    setStatus(tl+' · '+n+' documents');
-  }catch(e){e=netErr(e);setStatus(e.msg,'err')}
-  finally{busy=null}
-};
+    if(kind==="answer"){
+      setStatus("Reading the corpus and writing an answer (can take up to a minute)...","busy");
+      var r=await tool("answer",{request:q});
+      renderAnswer(r.data||{},q,out);
+      setStatus("Answered"+interp(r.data));
+    }else{
+      setStatus("Resolving terms...","busy");
+      var t=await tool("resolve_terms",{request:q});
+      var terms=Array.isArray(t.data)?t.data:(t.data&&(t.data.terms||t.data.result))||[];
+      var names=terms.map(function(x){return x.name}).filter(Boolean);
+      var tl="Terms: "+(names.length?names.join(" · "):"(none matched)");
+      setStatus(tl+" · building corpus...","busy");
+      var c=await tool("build_corpus",{request:q,max_docs:20});
+      renderCorpus(c.data||{groups:[]},out);
+      var n=((c.data&&c.data.groups)||[]).reduce(function(s,g){return s+(g.items||[]).length},0);
+      setStatus(tl+" · "+n+" documents"+interp(c.data));
+    }
+  }catch(e){
+    e=netErr(e);
+    if(kind==="answer"&&/unavailable/i.test(e.msg)){answerOff=true;$("answer").hidden=true;out.appendChild(el("p","meta",e.msg))}
+    setStatus(e.msg,"err");
+  }
+  finally{busy=null;$("go").disabled=$("answer").disabled=false}
+}
+$("ask").onsubmit=function(ev){ev.preventDefault();run("ask")};
+$("answer").onclick=function(){run("answer")};
+$("q").onkeydown=function(ev){if(ev.key==="Enter"&&(ev.metaKey||ev.ctrlKey)){ev.preventDefault();run("ask")}};
 if(base()&&$('token').value)freshness();
 })();

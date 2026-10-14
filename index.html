@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>New America research console</title>
-<link rel="stylesheet" href="console.css?v=5">
+<link rel="stylesheet" href="console.css?v=6">
 </head>
 <body>
 <header class="wrap">
@@ -17,14 +17,19 @@
     <label>Token <input id="token" type="password" autocomplete="off"></label>
     <div class="row"><button id="test" type="button">Test connection</button><span id="testout" role="status"></span></div>
   </details>
-  <form id="ask" class="ask">
-    <label for="q" class="sr">Research question</label>
-    <textarea id="q" rows="3" placeholder="What has New America published on broadband affordability?"></textarea>
-    <button id="go" type="submit">Ask</button>
-  </form>
-  <div id="status" role="status" aria-live="polite"></div>
 </header>
 <main class="wrap" id="out"></main>
-<script src="console.js?v=5"></script>
+<footer class="composer">
+  <div class="wrap">
+    <div id="status" role="status" aria-live="polite"></div>
+    <form id="ask" class="ask">
+      <label for="q" class="sr">Research question</label>
+      <textarea id="q" rows="2" placeholder="What has New America published on broadband affordability?"></textarea>
+      <button id="go" type="submit">Ask</button>
+      <button id="answer" type="button">Answer</button>
+    </form>
+  </div>
+</footer>
+<script src="console.js?v=6"></script>
 </body>
 </html>

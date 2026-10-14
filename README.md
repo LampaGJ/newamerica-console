@@ -19,3 +19,7 @@ Use the printed URL as the Server URL. The console calls <url>/mcp and <url>/hea
 ## Local check
 
 Open index.html directly. "Test connection" hits /healthz and runs the MCP initialize handshake.
+
+## Answer
+
+The page is a chat transcript with the composer pinned at the bottom. Ask lists documents; Answer calls the server's `answer` tool (needs Claude Code logged in on the server machine) and renders a card with [n] links to a Sources list. If the server reports "answer unavailable", the Answer button hides.
