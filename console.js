@@ -149,6 +149,14 @@ function item(it){
 
 function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
 function toEnd(n){n.scrollIntoView({block:"end",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
+function settle(t,state){
+  var sh=t.body.parentNode,fin=false;
+  function go(){if(fin)return;fin=true;sh.classList.remove("anim");toEnd(t.card)}
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches){t.card.dataset.state=state;go();return}
+  sh.classList.add("anim");t.card.dataset.state=state;
+  sh.addEventListener("transitionend",function(e){if(e.target===sh&&e.propertyName==="grid-template-rows")go()});
+  setTimeout(go,700);
+}
 function turn(q){
   var w=$("welcome");if(w)w.remove();
   var u=el("div","msg user",q);
@@ -262,20 +270,21 @@ async function run(){
       if(sh&&sh.previousSibling)sh.previousSibling.textContent="Sources ("+(d.citations||[]).length+")";
       moreSources(card,q);
     }
-    t.card.dataset.state="done";
+    settle(t,"done");
   }catch(e){
     e=netErr(e);
     if(e.kind==="srv"&&/unavailable/i.test(e.msg)){
       t.stage.textContent="The written answer is unavailable ("+e.msg+"). Showing the ranked sources instead.";
-      try{var c=await tool("build_corpus",{request:q,max_docs:20});renderCorpus(c.data||{groups:[]},out);t.card.dataset.state="done"}
-      catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));t.card.dataset.state="error"}
-    }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));t.card.dataset.state="error"}
+      try{var c=await tool("build_corpus",{request:q,max_docs:20});renderCorpus(c.data||{groups:[]},out);settle(t,"done")}
+      catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));settle(t,"error")}
+    }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));settle(t,"error")}
   }
-  finally{busy=null;$("go").disabled=false;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending");toEnd(t.card);setTimeout(function(){toEnd(t.card)},480)}
+  finally{busy=null;$("go").disabled=false;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
 $("q").oninput=grow;
 $("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
+(function(){var f=document.querySelector(".composer"),r=document.documentElement;function m(){r.style.setProperty("--composer-h",f.offsetHeight+"px")}m();if(window.ResizeObserver)new ResizeObserver(m).observe(f);else window.addEventListener("resize",m)})();
 gate();welcome();
 if(token())health();
 })();
