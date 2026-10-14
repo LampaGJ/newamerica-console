@@ -148,14 +148,18 @@ function item(it){
 }
 
 function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
+function toEnd(n){n.scrollIntoView({block:"end",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
 function turn(q){
   var w=$("welcome");if(w)w.remove();
   var u=el("div","msg user",q);
   var a=el("article","msg assistant");a.dataset.state="pending";
-  var stage=el("div","stage"),body=el("div","body");
-  a.appendChild(stage);a.appendChild(body);
+  var stage=el("div","stage"),shell=el("div","body"),body=el("div","fold"),dots=el("div","dots");
+  dots.setAttribute("aria-hidden","true");for(var i=0;i<3;i++)dots.appendChild(el("i"));
+  shell.appendChild(body);a.appendChild(dots);a.appendChild(stage);a.appendChild(shell);
+  // restart a short fade-up whenever the stage text changes (text itself updates immediately)
+  new MutationObserver(function(){stage.classList.remove("swap");void stage.offsetWidth;stage.classList.add("swap")}).observe(stage,{childList:true});
   $("out").appendChild(u);$("out").appendChild(a);
-  u.scrollIntoView({block:"start",behavior:"smooth"});
+  toEnd(a);
   return {card:a,stage:stage,body:body};
 }
 function fill(text){var q=$("q");q.value=text;grow();q.focus()}
@@ -171,7 +175,8 @@ function welcome(){
   w.appendChild(el("p","meta","Ask in plain words. I search New America publications and write a short answer with sources. Type help to see what I can do."));
   w.appendChild(chips(STARTERS));$("out").appendChild(w);
 }
-function grow(){var q=$("q");q.style.height="auto";q.style.height=Math.min(q.scrollHeight,104)+"px"}
+var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
+function grow(){var q=$("q");if(AUTO){q.style.height="";return}q.style.height="auto";q.style.height=Math.min(q.scrollHeight,112)+"px"}
 // Minimal markdown: paragraphs, bullets, **bold**; [n] becomes a superscript link to Sources entry n. All text is escaped via textContent.
 function inline(parent,s,cites){
   var re=/(\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
@@ -243,7 +248,7 @@ async function run(){
   if(!token()){$("connect").hidden=false;$("paste").focus();return}
   $("q").value="";grow();var t=turn(q);
   t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
-  busy={q:q,stage:t.stage};$("go").disabled=true;
+  busy={q:q,stage:t.stage};$("go").disabled=true;$("ask").querySelector(".box").classList.add("busy");document.body.classList.add("pending");
   var out=t.body;
   try{
     var r=await tool("answer",{request:q});
@@ -266,7 +271,7 @@ async function run(){
       catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));t.card.dataset.state="error"}
     }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));t.card.dataset.state="error"}
   }
-  finally{busy=null;$("go").disabled=false}
+  finally{busy=null;$("go").disabled=false;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending");toEnd(t.card);setTimeout(function(){toEnd(t.card)},480)}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
 $("q").oninput=grow;

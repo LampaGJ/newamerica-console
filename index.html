@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>New America research console</title>
-<link rel="stylesheet" href="console.css?v=7">
+<link rel="stylesheet" href="console.css?v=8">
 </head>
 <body>
 <main class="wrap" id="out"></main>
@@ -15,14 +15,14 @@
     <form id="ask" class="ask">
       <label for="q" class="sr">Research question</label>
       <div class="box">
-        <svg class="spark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+        <i class="ico ico--spark" aria-hidden="true"></i>
         <textarea id="q" rows="1" placeholder="Ask about New America research"></textarea>
-        <button id="go" type="submit">Go</button>
+        <button id="go" class="pill" type="submit"><span>Ask</span><i class="ico ico--send" aria-hidden="true"></i></button>
       </div>
     </form>
     <span id="dot" class="dot" role="status" title="Not connected"></span>
   </div>
 </footer>
-<script src="console.js?v=7"></script>
+<script src="console.js?v=8"></script>
 </body>
 </html>
