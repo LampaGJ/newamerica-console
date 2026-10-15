@@ -156,3 +156,9 @@ html{scroll-behavior:auto}
 .tl-year{margin-left:.4rem;font-size:.8rem;color:var(--mut)}
 .fund-row{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;margin:.2rem 0}.fund-lab{font-size:.75rem;color:var(--mut)}.fund-row .tl-chip{margin-left:0}
 .fd-credit{color:var(--mut);font-style:italic}.fd-pubs,.fd-rank{padding-left:1.4rem}.fd-pubs li,.fd-rank li{margin:.5rem 0}
+.pp-list,.ev-list{padding-left:1.4rem}.pp-list li,.ev-list li{margin:.6rem 0}
+.pp-head{display:flex;align-items:center;gap:.6rem}
+.pp-av{width:32px;height:32px;flex:none;border-radius:50%;object-fit:cover;background:var(--line)}
+.pp-av--none{display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;color:var(--mut)}
+.pp-why{margin:.25rem 0 .15rem}
+.ev-fmt{vertical-align:middle}

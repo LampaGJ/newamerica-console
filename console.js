@@ -224,7 +224,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What has New America published this month on early childhood education?","What ideas cut across programs?","Which reports has the Gates Foundation funded?","Where does New America get its funding?"];
+var STARTERS=["What ideas cut across programs?","Who should I talk to about rural broadband?","Which reports has the Gates Foundation funded?","Where does New America get its funding?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
@@ -352,6 +352,45 @@ function renderFunders(d,out){
   }
   out.appendChild(card);
 }
+function renderPeople(d,out){
+  var card=el("article","card pp"),list=d.people||[];
+  card.appendChild(el("h3",null,"Who works on "+(d.topic||"this topic")));
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  else card.appendChild(el("p","meta","Ranked from "+d.corpusSize+(d.corpusSize===1?" publication":" publications")+" on the topic. Bylines only."));
+  var ol=el("ol","pp-list");
+  list.forEach(function(p){
+    var li=el("li","pp-person"),h=el("div","pp-head");
+    if(safeUrl(p.photoUrl)){var im=el("img","pp-av");im.src=p.photoUrl;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";h.appendChild(im)}
+    else h.appendChild(el("span","pp-av pp-av--none",(p.name||"?").charAt(0)));
+    var who=el("div");var nm=el("strong");nm.appendChild(link(p.name,p.bioUrl));who.appendChild(nm);
+    var meta=[p.role,p.program].filter(Boolean).join(" · ");
+    if(meta)who.appendChild(el("div","meta",meta));
+    h.appendChild(who);li.appendChild(h);
+    if(p.why)li.appendChild(el("div","pp-why",p.why));
+    if(p.latest){var lt=el("div","meta");lt.appendChild(document.createTextNode("Latest: "));lt.appendChild(link(p.latest.title||"(untitled)",p.latest.url));if(p.latest.date)lt.appendChild(document.createTextNode(" · "+String(p.latest.date).slice(0,10)));li.appendChild(lt)}
+    ol.appendChild(li);
+  });
+  if(list.length)card.appendChild(ol);
+  out.appendChild(card);
+}
+function evWhen(s){if(!s)return "Date not listed";var t=String(s);return t.slice(0,10)+(t.length>10?" "+t.slice(11,16):"")}
+function renderEvents(d,out){
+  var card=el("article","card ev"),list=d.events||[],w=d.window||{};
+  card.appendChild(el("h3",null,d.upcoming?"Upcoming events ("+(w.label||"upcoming")+")":"No upcoming events"+(w.label&&w.label!=="upcoming"?" "+w.label:"")));
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  var ol=el("ol","ev-list");
+  list.forEach(function(e){
+    var li=el("li"),h=el("div","st");h.appendChild(link(e.title||"(untitled)",e.url));
+    if(e.format)h.appendChild(el("span","tl-chip ev-fmt",e.format==="in-person"?"In person":e.format.charAt(0).toUpperCase()+e.format.slice(1)));
+    li.appendChild(h);
+    li.appendChild(el("div","meta",[evWhen(e.event_start),e.program].filter(Boolean).join(" · ")));
+    if(safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link("Register",e.registrationUrl));li.appendChild(r)}
+    ol.appendChild(li);
+  });
+  if(list.length)card.appendChild(ol);
+  card.appendChild(el("p","meta fine","Times are the site’s local time (Eastern)."));
+  out.appendChild(card);
+}
 function moreSources(card,q){
   var det=el("details","more"),sm=el("summary",null,"Show all sources"),slot=el("div");
   det.appendChild(sm);det.appendChild(slot);card.appendChild(det);
@@ -428,6 +467,8 @@ async function run(){
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="funders"){renderFunders(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="people"){renderPeople(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="events"){renderEvents(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
     else{
       renderAnswer(d,q,out);
