@@ -224,7 +224,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What has New America published this month on early childhood education?","What ideas cut across programs?","Who at New America writes about housing policy?","Where does New America get its funding?"];
+var STARTERS=["What has New America published this month on early childhood education?","What ideas cut across programs?","Which reports has the Gates Foundation funded?","Where does New America get its funding?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
@@ -278,6 +278,7 @@ function renderAnswer(d,q,out){
       if(pu){var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(c.title||"this source")+" (new tab)");mt.appendChild(document.createTextNode(" "));mt.appendChild(pa)}
       if(c.chapters>0){mt.appendChild(el("span","chap-note"," "+c.chapters+(c.chapters===1?" chapter":" chapters")))}
       li.appendChild(mt);
+      if(c.funders&&c.funders.length){var fr=el("div","fund-row");fr.appendChild(el("span","fund-lab","Funded by"));c.funders.forEach(function(f){fr.appendChild(el("span","tl-chip",f))});li.appendChild(fr)}
       var au=(c.authorDetails||[]);
       if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
       else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
@@ -317,6 +318,38 @@ function renderThroughlines(d,out){
     });
     s.appendChild(ul);card.appendChild(s);
   });
+  out.appendChild(card);
+}
+function renderFunders(d,out){
+  var card=el("article","card fd"),pubs=d.publications||[],items=d.items||[];
+  card.appendChild(el("h3",null,d.funder?"Publications crediting "+((d.matched||[]).join(", ")||d.funder):"Who funded the work"+(d.groupBy&&d.groupBy!=="funder"?" (by "+d.groupBy+")":"")));
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  else card.appendChild(el("p","meta",d.total+(d.total===1?" publication names":" publications name")+" a funder in its own credit lines. Counts are a floor."));
+  if(pubs.length){
+    var ol=el("ol","fd-pubs");
+    pubs.forEach(function(p){
+      var li=el("li"),h=el("div","st");h.appendChild(link(p.title||"(untitled)",p.url));li.appendChild(h);
+      li.appendChild(el("div","meta",[p.label,p.date?String(p.date).slice(0,10):"",p.program].filter(Boolean).join(" \u00b7 ")));
+      if(p.sentence)li.appendChild(el("div","meta fd-credit","\u201c"+p.sentence+"\u201d"));
+      ol.appendChild(li);
+    });
+    card.appendChild(ol);
+  }else if(items.length){
+    var ul=el("ol","fd-rank");
+    items.forEach(function(it){
+      var li=el("li");li.appendChild(el("strong",null,it.key));
+      li.appendChild(el("span","meta"," \u00b7 "+it.publications+(it.publications===1?" publication":" publications")+" \u00b7 "+yearSpan(it.years)));
+      if(it.top&&it.top.length){var row=el("div","fund-row");it.top.forEach(function(t){row.appendChild(el("span","tl-chip",t))});li.appendChild(row)}
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+  }
+  if(d.links&&d.links.length){
+    card.appendChild(el("h4",null,"Where New America publishes its funding"));
+    var lu=el("ul");
+    d.links.forEach(function(l){var li=el("li");li.appendChild(link(l.label,l.url));li.appendChild(document.createTextNode(" \u2014 "+l.note));lu.appendChild(li)});
+    card.appendChild(lu);
+  }
   out.appendChild(card);
 }
 function moreSources(card,q){
@@ -393,6 +426,7 @@ async function run(){
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="funders"){renderFunders(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
     else{
