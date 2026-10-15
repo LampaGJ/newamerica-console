@@ -345,6 +345,14 @@ function renderHelp(d,text,out){
   if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
   out.appendChild(card);
 }
+function pct(x){return Math.round(x*100)+"%"}
+// "closest site topic: <name> (<share>)" with its landing link, or "no single site topic"; nothing when the crosswalk has not run (t undefined).
+function topicLine(t,cls){
+  if(t===undefined)return null;
+  var p=el("p",cls||"meta");
+  if(t===null){p.textContent="no single site topic";return p}
+  p.appendChild(document.createTextNode("closest site topic: "));p.appendChild(link(t.name,t.url));p.appendChild(document.createTextNode(" ("+pct(t.share)+")"));return p;
+}
 function yearSpan(y){if(!y||y[0]==null)return "undated";return y[0]===y[1]?String(y[0]):y[0]+"\u2013"+y[1]}
 // Related on newamerica.org, then Discovered groupings, appended to a throughlines card or an agent answer.
 function siteBlocks(d,card){
@@ -352,12 +360,13 @@ function siteBlocks(d,card){
   if(ps.length||ts.length){
     card.appendChild(el("h4",null,"Related on newamerica.org"));
     [["Programs",ps],["Topics and issues",ts]].forEach(function(p){if(!p[1].length)return;var row=el("div","fund-row");row.appendChild(el("span","fund-lab",p[0]));p[1].forEach(function(x){row.appendChild(link(x.name,x.url));row.appendChild(document.createTextNode(" "))});card.appendChild(row)});
+    ts.forEach(function(x){var g=x.groupings||[];if(!g.length)return;var row=el("div","fund-row");row.appendChild(el("span","fund-lab","Groupings in "+x.name));row.appendChild(document.createTextNode(g.map(function(y){return y.label+" ("+pct(y.share)+")"}).join(", ")));card.appendChild(row)});
   }
   var disc=d.discovered||[];
   if(disc.length){
     card.appendChild(el("h4",null,"Discovered groupings ("+(d.discoveredBy==="lexical"?"lexical":"from the vector index")+")"));
     var ul=el("ul","tl-reps");
-    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));li.appendChild(el("span","tl-year",g.programCount+" programs \u00b7 "+yearSpan(g.years)));if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
+    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));li.appendChild(el("span","tl-year",g.programCount+" programs \u00b7 "+yearSpan(g.years)));var tp=topicLine(g.closestTopic);if(tp){li.appendChild(document.createTextNode(" "));li.appendChild(tp)}if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
     card.appendChild(ul);
   }
 }
@@ -365,6 +374,8 @@ function renderThroughlines(d,out){
   var card=el("article","card tl");
   card.appendChild(el("h3",null,d.topic&&(d.ranking==="topic"||d.ranking==="lexical")?"Ideas across programs, closest to \u201c"+d.topic+"\u201d":"Ideas that run across New America\u2019s programs"));
   if(d.note)card.appendChild(el("p","meta",d.note));
+  var al=d.alignment;
+  if(al)card.appendChild(el("p","meta",al.aligned+" of "+al.groupings+" groupings align with one site topic; "+al.concentrating+" of "+al.topics+" topics concentrate in a grouping"));
   var list=d.clusters||[];
   if(!list.length)card.appendChild(el("p",null,"No cluster matched."));
   list.forEach(function(c){
@@ -372,6 +383,7 @@ function renderThroughlines(d,out){
     s.appendChild(el("h4",null,c.label||("Unlabelled cluster "+c.id)));
     if(c.sentence)s.appendChild(el("p","tl-sentence",c.sentence));
     s.appendChild(el("div","meta",c.size+" documents \u00b7 "+c.programCount+" programs \u00b7 "+yearSpan(c.years)));
+    var tl=topicLine(c.closestTopic);if(tl)s.appendChild(tl);
     var ul=el("ul","tl-reps");
     (c.representatives||[]).forEach(function(r){
       var li=el("li");li.appendChild(link(r.title||"(untitled)",r.url));
