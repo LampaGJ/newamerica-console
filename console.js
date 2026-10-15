@@ -141,7 +141,7 @@ function compact(n){
   var k=n/1000;
   return (k<100?k.toFixed(1).replace(/\.0$/,''):String(Math.round(k)))+'k';
 }
-var STAT_LABELS=[['documents','pages'],['programs','programs'],['people','contributors'],['terms','taxonomy terms'],['pdfs','PDFs'],['social','social posts']];
+var STAT_LABELS=[['documents','pages'],['programs','programs'],['projects','projects'],['people','contributors'],['topics','taxonomy topics'],['pdfs','PDFs'],['social','social posts']];
 // "Searching 22.5k pages · 60 programs · ..." with zero or missing fields hidden; '' when nothing is left.
 function statsLine(c){
   var parts=[];
@@ -357,7 +357,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What ideas cut across programs?","Who should I talk to about rural broadband?","Which reports has the Gates Foundation funded?","Where does New America get its funding?","Who cites New America's work?"];
+var STARTERS=["What ideas cut across programs?","Who should I talk to about apprenticeships?","Which reports has the Gates Foundation funded?","Where does New America get its funding?","Who cites New America's work?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
