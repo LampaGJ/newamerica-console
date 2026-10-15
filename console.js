@@ -31,7 +31,7 @@ function netErr(e){
 async function http(path,opts){
   var r;
   try{r=await fetch(base()+path,opts)}catch(e){throw netErr(e)}
-  if(r.status===401){tokenRejected();throw {kind:'auth',msg:'Your access link was rotated. Paste the current link from the private newamerica-secrets repo.'}}
+  if(r.status===401){tokenRejected();throw {kind:'auth',msg:'Your access link is no longer valid. Paste the current one.'}}
   if(r.status===403)throw {kind:'auth',msg:'The server rejected the token (HTTP '+r.status+'). Paste a fresh access link.'};
   return r;
 }
@@ -39,7 +39,7 @@ async function http(path,opts){
 function tokenRejected(){
   try{localStorage.removeItem('na.token')}catch(e){}
   sess=null;connKey='';gate();
-  var n=$('rotated');if(n){n.textContent='Your access link was rotated. Paste the current link from the private newamerica-secrets repo.';n.hidden=false}
+  var n=$('rotated');if(n){n.textContent='Your access link is no longer valid. Paste the current one.';n.hidden=false}
 }
 function hdrs(){
   var h={'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-protocol-version':PROTO};
