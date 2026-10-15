@@ -5,25 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>New America research console</title>
-<link rel="stylesheet" href="console.css?v=24">
+<link rel="stylesheet" href="console.css?v=29">
 </head>
 <body>
 <main class="wrap" id="out"></main>
 <footer class="composer">
   <div class="wrap">
-    <div id="connect" hidden><label for="paste">Paste your access link.</label><input id="paste" type="text" autocomplete="off" placeholder="Access link or token"><p id="rotated" class="offline-note" role="status" hidden></p></div>
     <form id="ask" class="ask">
       <label for="q" class="sr">Research question</label>
+      <p id="preview" class="preview-note" role="status" hidden></p>
       <div class="box">
         <i class="ico ico--spark" aria-hidden="true"></i>
         <textarea id="q" rows="1" placeholder="Ask about New America"></textarea>
         <span id="dot" class="dot" role="status" title="Checking the server"></span>
         <button id="go" class="pill" type="submit"><span>Ask</span><i class="ico ico--send" aria-hidden="true"></i></button>
       </div>
+      <p id="stats" class="preview-note" hidden></p>
       <p id="offline" class="offline-note" role="status" aria-live="polite" hidden></p>
+
     </form>
   </div>
 </footer>
-<script src="console.js?v=27"></script>
+<script src="console.js?v=29"></script>
 </body>
 </html>

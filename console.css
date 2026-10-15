@@ -142,6 +142,7 @@ html{scroll-behavior:auto}
 .box.off textarea{cursor:not-allowed}
 .offline-note{margin:.4rem 0 0;font-size:13px;color:#8a2d22;text-align:center}
 @media (prefers-color-scheme:dark){.offline-note{color:#f0a195}}
+.preview-note{margin:.3rem 0;font-size:.85rem;color:var(--mut);text-align:center}
 .pdf-pill{display:inline-block;margin-left:.35rem;padding:0 .5rem;border:1px solid var(--line);border-radius:999px;font-size:.75rem;line-height:1.4;color:var(--mut);text-decoration:none;background:transparent}
 .pdf-pill:hover{color:var(--fg);border-color:var(--mut)}
 .pdf-pill:focus-visible{outline:2px solid var(--acc);outline-offset:2px}

@@ -5,9 +5,9 @@ var TIERS={1:'Authoritative',2:'Analysis',3:'Supporting',4:'Peripheral'};
 var PROTO='2025-06-18';
 var sess=null,rid=1,busy=null,connKey='';
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localStorage.setItem(k,v)}catch(e){return ''}}
-// A shareable link may carry the token (and server) in the URL: prefer the fragment (#token=...), which the
-// browser never sends to GitHub Pages or any log; ?token= is accepted too. Both are stored and then removed
-// from the address bar, so a copied URL afterwards does not leak the token.
+// Maintainer only: a link may carry a token (and server) in the URL, preferably the fragment (#token=...), which the
+// browser never sends to GitHub Pages or any log. It is stored, sent as a bearer, never shown, and removed
+// from the address bar. People need no token while the open preview runs.
 (function fromUrl(){
   var p=new URLSearchParams((location.hash||'').replace(/^#/,''));
   var q=new URLSearchParams(location.search);
@@ -17,7 +17,7 @@ function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localSt
   if(tok||srv){try{history.replaceState(null,'',location.pathname)}catch(e){}}
 })();
 var DEFAULT_SERVER='https://macstudio.tarpan-woodpecker.ts.net/newamerica';
-// The token lives only in localStorage (a pasted link or #token=); the page ships with none.
+// The token lives only in localStorage (set by #token=); the page ships with none and has no UI for it.
 function token(){return ls("na.token")||null}
 function base(){return (ls('na.server')||DEFAULT_SERVER).trim().replace(/\/+$/,'')}
 function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
@@ -31,15 +31,13 @@ function netErr(e){
 async function http(path,opts){
   var r;
   try{r=await fetch(base()+path,opts)}catch(e){throw netErr(e)}
-  if(r.status===401){tokenRejected();throw {kind:'auth',msg:'Your access link is no longer valid. Paste the current one.'}}
-  if(r.status===403)throw {kind:'auth',msg:'The server rejected the token (HTTP '+r.status+'). Paste a fresh access link.'};
+  if(r.status===401||r.status===403){
+    // A stale maintainer token is dropped so the next try goes out anonymously.
+    var had=!!token();
+    if(had){try{localStorage.removeItem('na.token')}catch(e){}sess=null;connKey=''}
+    throw {kind:'auth',msg:had?'The saved maintainer token was rejected and removed. Ask again.':'The server did not accept this request (HTTP '+r.status+').'};
+  }
   return r;
-}
-// A 401 means the stored token is stale: forget it, lock the composer, show the paste field with a note.
-function tokenRejected(){
-  try{localStorage.removeItem('na.token')}catch(e){}
-  sess=null;connKey='';gate();
-  var n=$('rotated');if(n){n.textContent='Your access link is no longer valid. Paste the current one.';n.hidden=false}
 }
 function hdrs(){
   var h={'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-protocol-version':PROTO};
@@ -50,6 +48,7 @@ async function rpc(body,isNote,onProgress){
   var r=await http('/mcp',{method:'POST',headers:hdrs(),body:JSON.stringify(body)});
   if(isNote){if(!r.ok&&r.status!==202)throw {kind:'srv',msg:'Server error '+r.status+' on notification.'};return null}
   if(r.status===404&&sess){sess=null;throw {kind:'srv',msg:'Session expired; try again.'}}
+  if(r.status===429){var t429=await r.text(),m429='';try{m429=JSON.parse(t429).error.message}catch(e){}throw {kind:'srv',msg:m429||'Too many requests. Try again shortly.'}}
   if(!r.ok)throw {kind:'srv',msg:'Server error '+r.status+' '+(await r.text()).slice(0,200)};
   var sid=r.headers.get('mcp-session-id');if(sid)sess=sid;
   var ct=r.headers.get('content-type')||'',j;
@@ -106,7 +105,7 @@ async function tool(name,args,onProgress){
   return {data:res&&res.structuredContent,text:txt};
 }
 
-var locked=false;
+var locked=false,openUntil,counts=null;
 var OFFLINE_MSG="New America research is currently offline",offline=null,healthTimer=null;
 function setOffline(off,why){
   if(offline===off)return;offline=off;
@@ -123,26 +122,45 @@ function health(){
     if(!h||h.ok===false)throw new Error('unhealthy');
     d.className='dot on';
     d.title='Connected: '+h.documents+' documents, '+h.tier1+' tier-1, synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
+    openUntil=typeof h.openAccessUntil==='string'?h.openAccessUntil:null;
+    counts=h.counts||null;
+    gate();
     setOffline(false);
   }).catch(function(e){d.className='dot off';d.title='Offline: cannot reach '+base();setOffline(true,e&&e.message&&/HTTP/.test(e.message)?e.message:'')})
   .finally(function(){clearTimeout(healthTimer);healthTimer=setTimeout(health,30000)});
 }
-// Accept a full share link (#token=...&server=...) or a bare token.
-function connectFrom(v){
-  v=(v||'').trim();if(!v)return false;
-  var tok=v,srv='';
-  try{var u=new URL(v);var p=new URLSearchParams((u.hash||'').replace(/^#/,''));var q=u.searchParams;
-    tok=p.get('token')||q.get('token')||'';srv=p.get('server')||q.get('server')||''}catch(e){}
-  if(!tok)return false;
-  ls('na.token',tok.trim());if(srv)ls('na.server',srv.trim());sess=null;connKey='';return true;
+//#fmt-start
+// "Oct 31, 2026" from the date part of the healthz value (its own offset, so the day never shifts).
+function untilLabel(v){
+  var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(v||'');if(!m)return '';
+  return new Date(Date.UTC(+m[1],+m[2]-1,+m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 }
-// No stored token: show the paste field and keep the composer disabled.
+// 22500 -> "22.5k", 1200 -> "1.2k", 400 -> "400"; one decimal under 100k, whole thousands above.
+function compact(n){
+  if(n<1000)return String(n);
+  var k=n/1000;
+  return (k<100?k.toFixed(1).replace(/\.0$/,''):String(Math.round(k)))+'k';
+}
+var STAT_LABELS=[['documents','pages'],['programs','programs'],['people','staff'],['terms','taxonomy terms'],['pdfs','PDFs'],['social','social posts']];
+// "Searching 22.5k pages · 60 programs · ..." with zero or missing fields hidden; '' when nothing is left.
+function statsLine(c){
+  var parts=[];
+  STAT_LABELS.forEach(function(p){var n=c&&c[p[0]];if(typeof n==='number'&&n>0)parts.push(compact(n)+' '+p[1])});
+  return parts.length?'Searching '+parts.join(' \u00b7 '):'';
+}
+//#fmt-end
+// Note above the input box: window open, or closed (null or past) with the composer disabled unless a maintainer token is stored.
 function gate(){
-  locked=!token();$('connect').hidden=!locked;
+  var open=openUntil!==null&&openUntil!==undefined&&Date.parse(openUntil)>Date.now();
+  locked=!open&&!token()&&openUntil!==undefined;
+  var pv=$('preview'),d=untilLabel(openUntil)||'Oct 31, 2026';
+  pv.hidden=!open&&!locked;
+  if(open)pv.textContent='Time-limited demonstration through '+d+'.';
+  else if(locked)pv.textContent='This time-limited demonstration ended on '+d+'.';
+  var st=$('stats'),line=statsLine(counts);st.hidden=!line;st.textContent=line;
   var q=$('q'),g=$('go');q.disabled=locked||!!offline;g.disabled=locked||!!offline||!!busy;
   $('ask').querySelector('.box').classList.toggle('off',locked||!!offline);
 }
-$('paste').onchange=$('paste').oninput=function(){if(connectFrom($('paste').value)){var n=$('rotated');if(n)n.hidden=true;$('paste').value='';gate();health();$('q').focus()}};
 
 function renderCorpus(c,out){
   var groups=(c&&c.groups)||[];
@@ -251,7 +269,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What ideas cut across programs?","Who should I talk to about rural broadband?","Which reports has the Gates Foundation funded?","Where does New America get its funding?"];
+var STARTERS=["What ideas cut across programs?","Who should I talk to about rural broadband?","Which reports has the Gates Foundation funded?","Where does New America get its funding?","Who cites New America's work?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
@@ -382,6 +400,58 @@ function renderFunders(d,out){
   }
   out.appendChild(card);
 }
+var CITE_SRC={wikipedia:"Wikipedia",hn:"Hacker News",openalex:"OpenAlex",in_the_news:"In the News"};
+function renderWhoCites(d,out){
+  var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
+  var h=el("h3",null,"Who cites ");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
+  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(d.live?" after a live refresh":"")+(doc.tier?" \u00b7 tier "+doc.tier:"")));
+  var row=el("div","fund-row");
+  srcs.forEach(function(s){row.appendChild(el("span","tl-chip",(CITE_SRC[s.source]||s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
+  card.appendChild(row);
+  srcs.forEach(function(s){if(s.note&&s.note!=="not requested")card.appendChild(el("p","meta",(CITE_SRC[s.source]||s.source)+": "+s.note))});
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  if(items.length){
+    var ol=el("ol","fd-pubs");
+    items.forEach(function(it){
+      var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));t.appendChild(el("span","tl-chip",CITE_SRC[it.source]||it.source));
+      if(it.match==="inferred")t.appendChild(el("span","tl-chip","inferred"));li.appendChild(t);
+      li.appendChild(el("div","meta",[it.venue,it.author,it.date?String(it.date).slice(0,10):"",it.cited_by_count!=null?"cited by "+it.cited_by_count:""].filter(Boolean).join(" \u00b7 ")));
+      ol.appendChild(li);
+    });
+    card.appendChild(ol);
+  }
+  if(items.some(function(i){return i.match==="inferred"}))card.appendChild(el("p","meta fd-credit","In the News matches are inferred from shared title words (at least "+Math.round((d.inferredThreshold||0)*100)+"%). Check one before quoting it."));
+  out.appendChild(card);
+}
+function renderCitationReport(d,out){
+  var card=el("article","card fd"),docs=d.documents||[];
+  card.appendChild(el("h3",null,"Who cites New America"+(d.since?" since "+d.since:"")));
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  var row=el("div","fund-row");
+  (d.totals||[]).forEach(function(t){row.appendChild(el("span","tl-chip",(CITE_SRC[t.source]||t.source)+" "+t.rows))});
+  card.appendChild(row);
+  card.appendChild(el("h4",null,"Most-cited documents"));
+  if(docs.length){
+    var ol=el("ol","fd-rank");
+    docs.forEach(function(x){
+      var li=el("li");li.appendChild(link(x.title||"(untitled)",x.url));
+      li.appendChild(el("span","meta"," \u00b7 "+x.total+(x.total===1?" citation":" citations")));
+      var r=el("div","fund-row");Object.keys(x.bySource||{}).forEach(function(k){r.appendChild(el("span","tl-chip",(CITE_SRC[k]||k)+" "+x.bySource[k]))});li.appendChild(r);
+      ol.appendChild(li);
+    });
+    card.appendChild(ol);
+  }else card.appendChild(el("p","meta","No citation is matched to a listed document yet."));
+  if((d.wikipediaPages||[]).length){
+    card.appendChild(el("h4",null,"Wikipedia articles citing New America"));
+    var wu=el("ul");d.wikipediaPages.forEach(function(p){var li=el("li");li.appendChild(link(p.title,p.url));li.appendChild(el("span","meta"," \u00b7 "+p.count+(p.count===1?" link":" links")));wu.appendChild(li)});card.appendChild(wu);
+  }
+  if((d.scholarly||[]).length){
+    card.appendChild(el("h4",null,"Scholarly works (OpenAlex)"));
+    var su=el("ul");d.scholarly.forEach(function(w){var li=el("li");li.appendChild(link(w.title||"(untitled)",w.url));li.appendChild(el("span","meta"," \u00b7 "+[w.venue,w.date?String(w.date).slice(0,10):"","cited by "+(w.cited_by_count||0)].filter(Boolean).join(" \u00b7 ")));su.appendChild(li)});card.appendChild(su);
+  }
+  if((d.runs||[]).length)card.appendChild(el("p","meta","Last collected: "+d.runs.map(function(r){return (CITE_SRC[r.source]||r.source)+" "+String(r.fetched_at).slice(0,10)+(r.status==="ok"?"":" ("+r.status+")")}).join(" \u00b7 ")));
+  out.appendChild(card);
+}
 function renderPeople(d,out){
   var card=el("article","card pp"),list=d.people||[];
   card.appendChild(el("h3",null,"Who works on "+(d.topic||"this topic")));
@@ -468,7 +538,7 @@ async function run(){
   var q=$("q").value.trim();if(!q)return;
   if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
   if(offline){health();return}
-  if(!token()){gate();$("paste").focus();return}
+  if(locked)return;
   $("q").value="";grow();var t=turn(q);
   t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
   busy={q:q,stage:t.stage};$("go").disabled=true;$("ask").querySelector(".box").classList.add("busy");document.body.classList.add("pending");
@@ -485,6 +555,8 @@ async function run(){
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="funders"){renderFunders(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="who_cites"){renderWhoCites(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="citation_report"){renderCitationReport(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="people"){renderPeople(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="events"){renderEvents(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
