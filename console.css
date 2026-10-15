@@ -146,3 +146,11 @@ html{scroll-behavior:auto}
 .pdf-pill:hover{color:var(--fg);border-color:var(--mut)}
 .pdf-pill:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .chap-note{margin-left:.35rem;font-size:.75rem;color:var(--mut)}
+.tl-cluster{border-top:1px solid var(--line);padding-top:.6rem;margin-top:.8rem}
+.tl-cluster:first-of-type{border-top:0;margin-top:.2rem}
+.tl-cluster h4{margin:.2rem 0 .2rem}
+.tl-sentence{margin:.1rem 0 .3rem}
+.tl-reps{margin:.4rem 0 0;padding-left:1.1rem}
+.tl-reps li{margin:.25rem 0}
+.tl-chip{display:inline-block;margin-left:.4rem;padding:0 .5rem;border:1px solid var(--line);border-radius:999px;font-size:.75rem;line-height:1.4;color:var(--mut)}
+.tl-year{margin-left:.4rem;font-size:.8rem;color:var(--mut)}

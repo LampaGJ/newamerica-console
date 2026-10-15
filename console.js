@@ -224,7 +224,7 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What has New America published this month on early childhood education?","Reports from the Open Technology Institute on broadband affordability since 2023","Who at New America writes about housing policy?","Where does New America get its funding?"];
+var STARTERS=["What has New America published this month on early childhood education?","What ideas cut across programs?","Who at New America writes about housing policy?","Where does New America get its funding?"];
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
@@ -294,6 +294,29 @@ function renderHelp(d,text,out){
   card.appendChild(md(text||"",{}));
   var ex=(d&&d.examples)||[];
   if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
+  out.appendChild(card);
+}
+function yearSpan(y){if(!y||y[0]==null)return "undated";return y[0]===y[1]?String(y[0]):y[0]+"\u2013"+y[1]}
+function renderThroughlines(d,out){
+  var card=el("article","card tl");
+  card.appendChild(el("h3",null,d.topic&&d.ranking==="topic"?"Ideas across programs, closest to \u201c"+d.topic+"\u201d":"Ideas that cut across programs"));
+  if(d.note)card.appendChild(el("p","meta",d.note));
+  var list=d.clusters||[];
+  if(!list.length)card.appendChild(el("p",null,"No cluster matched."));
+  list.forEach(function(c){
+    var s=el("section","tl-cluster");
+    s.appendChild(el("h4",null,c.label||("Unlabelled cluster "+c.id)));
+    if(c.sentence)s.appendChild(el("p","tl-sentence",c.sentence));
+    s.appendChild(el("div","meta",c.size+" documents \u00b7 "+c.programCount+" programs \u00b7 "+yearSpan(c.years)));
+    var ul=el("ul","tl-reps");
+    (c.representatives||[]).forEach(function(r){
+      var li=el("li");li.appendChild(link(r.title||"(untitled)",r.url));
+      if(r.program)li.appendChild(el("span","tl-chip",r.program));
+      li.appendChild(el("span","tl-year",r.date?String(r.date).slice(0,4):"undated"));
+      ul.appendChild(li);
+    });
+    s.appendChild(ul);card.appendChild(s);
+  });
   out.appendChild(card);
 }
 function moreSources(card,q){
@@ -370,6 +393,7 @@ async function run(){
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
     else{
       renderAnswer(d,q,out);
