@@ -178,8 +178,8 @@ function blurbs(parent,o){
 }
 //#rows-start
 function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
-// "See more like this (n)" for a positive related_count, '' otherwise (the link is then not rendered).
-function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?'See more like this ('+Math.floor(n)+')':''}
+// "See more like this (n)" for a positive related_count, '' otherwise (the link is then not rendered); "50+" at the cap (RELATED_CAP, src/mcp/hit.ts:93), where n is a floor not a count.
+function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?'See more like this ('+(n>=50?'50+':Math.floor(n))+')':''}
 var TAG_KEYS=['types','programs','topics','issues','projects'],TAG_MAX=6;
 // Every taxonomy name on a row, known taxonomies first, then any other key; the row's own program and repeats dropped.
 function tagNames(t,skip){
