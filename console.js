@@ -121,7 +121,7 @@ function health(){
   return http('/healthz').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(h){
     if(!h||h.ok===false)throw new Error('unhealthy');
     d.className='dot on';
-    d.title='Connected: '+h.documents+' documents, '+h.tier1+' tier-1, synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
+    d.title='Connected: '+h.documents+' documents ('+h.tier1+' major reports and books), synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
     openUntil=typeof h.openAccessUntil==='string'?h.openAccessUntil:null;
     counts=h.counts||null;
     gate();
@@ -141,7 +141,7 @@ function compact(n){
   var k=n/1000;
   return (k<100?k.toFixed(1).replace(/\.0$/,''):String(Math.round(k)))+'k';
 }
-var STAT_LABELS=[['documents','pages'],['programs','programs'],['projects','projects'],['people','contributors'],['topics','taxonomy topics'],['pdfs','PDFs'],['social','social posts']];
+var STAT_LABELS=[['documents','pages'],['programs','programs'],['projects','projects'],['people','contributors'],['topics','topics'],['pdfs','PDFs'],['social','social posts']];
 // "Searching 22.5k pages · 60 programs · ..." with zero or missing fields hidden; '' when nothing is left.
 function statsLine(c){
   var parts=[];
@@ -168,7 +168,7 @@ function renderCorpus(c,out){
   if(!groups.length){out.appendChild(el('p',null,'No documents matched. Try different wording.'));return}
   groups.slice().sort(function(a,b){return a.tier-b.tier}).forEach(function(g){
     if(!g.items||!g.items.length)return;
-    out.appendChild(el('h2',null,'Tier '+g.tier+' '+(TIERS[g.tier]||'')+' ('+g.items.length+')'));
+    out.appendChild(el('h2',null,(TIERS[g.tier]||'Other')+' ('+g.items.length+')'));
     g.items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
   });
 }
@@ -297,7 +297,7 @@ function pdfPill(parent,url,title){
 function renderExplore(d,card){
   var doc=d.document||{};
   var h=el("h3");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
-  card.appendChild(el("div","meta",[doc.tier?"Tier "+doc.tier+(doc.tierName?" "+doc.tierName:""):"",doc.date?String(doc.date).slice(0,10):"undated",doc.label].filter(Boolean).join(" \u00b7 ")));
+  card.appendChild(el("div","meta",[doc.tierName||TIERS[doc.tier]||"",doc.date?String(doc.date).slice(0,10):"undated",doc.label].filter(Boolean).join(" \u00b7 ")));
   var pr=progRow(doc);if(pr)card.appendChild(pr);
   if(d.lead)card.appendChild(el("p","abs",d.lead));
   var ol=(d.outline||[]).slice(0,20);
@@ -328,7 +328,13 @@ function renderExplore(d,card){
   card.appendChild(list);
 }
 
-function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
+// The quiet tag above an answer (docs/voice.md): "Themes" on a themes answer, "Answering as a question about <topic>" when the question was narrowed to a topic, else nothing.
+function readAs(d){
+  if(!d||d.kind==="help")return "";
+  if(d.kind==="throughlines")return "Themes";
+  var t=(d.interpreted||[]).map(function(i){var m=/^topic: \u201c?"?([^"\u201d]+)"?\u201d?/.exec(i);return m?m[1]:""}).filter(Boolean)[0];
+  return t?"Answering as a question about "+t:"";
+}
 function toEnd(n){n.scrollIntoView({block:"end",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
 function settle(t,state){
   var sh=t.body.parentNode,fin=false;
@@ -434,56 +440,49 @@ function renderHelp(d,text,out){
   if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
   out.appendChild(card);
 }
-function pct(x){return Math.round(x*100)+"%"}
-// "closest site topic: <name> (<share>)" with its landing link, or "no single site topic"; nothing when the crosswalk has not run (t undefined).
-function topicLine(t,cls){
-  if(t===undefined)return null;
-  var p=el("p",cls||"meta");
-  if(t===null){p.textContent="no single site topic";return p}
-  p.appendChild(document.createTextNode("closest site topic: "));p.appendChild(link(t.name,t.url));p.appendChild(document.createTextNode(" ("+pct(t.share)+")"));return p;
-}
 function yearSpan(y){if(!y||y[0]==null)return "undated";return y[0]===y[1]?String(y[0]):y[0]+"\u2013"+y[1]}
-// Related on newamerica.org, then Discovered groupings, appended to a throughlines card or an agent answer.
+// "Explore on the site" (programs, topics and issues, then the site's index pages), then "Related themes", appended to a themes, people or agent answer.
 function siteBlocks(d,card){
-  var rel=d.related||{},ps=rel.programs||[],ts=rel.terms||[];
-  if(ps.length||ts.length){
-    card.appendChild(el("h4",null,"Related on newamerica.org"));
-    [["Programs",ps],["Topics and issues",ts]].forEach(function(p){if(!p[1].length)return;var row=el("div","fund-row");row.appendChild(el("span","fund-lab",p[0]));p[1].forEach(function(x){row.appendChild(link(x.name,x.url));row.appendChild(document.createTextNode(" "))});card.appendChild(row)});
-    ts.forEach(function(x){var g=x.groupings||[];if(!g.length)return;var row=el("div","fund-row");row.appendChild(el("span","fund-lab","Groupings in "+x.name));row.appendChild(document.createTextNode(g.map(function(y){return y.label+" ("+pct(y.share)+")"}).join(", ")));card.appendChild(row)});
+  var rel=d.related||{},ps=rel.programs||[],ts=rel.terms||[],ix=rel.indexes||[];
+  if(ps.length||ts.length||ix.length){
+    card.appendChild(el("h4",null,"Explore on the site"));
+    [["Programs",ps],["Topics and issues",ts],["",ix]].forEach(function(p){if(!p[1].length)return;var row=el("div","fund-row");if(p[0])row.appendChild(el("span","fund-lab",p[0]));p[1].forEach(function(x){row.appendChild(link(x.name,x.url));row.appendChild(document.createTextNode(" "))});card.appendChild(row)});
   }
   var disc=d.discovered||[];
   if(disc.length){
-    card.appendChild(el("h4",null,"Discovered groupings ("+(d.discoveredBy==="lexical"?"lexical":"from the vector index")+")"));
+    card.appendChild(el("h4",null,"Related themes"));
     var ul=el("ul","tl-reps");
-    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));li.appendChild(el("span","tl-year",g.programCount+" programs \u00b7 "+yearSpan(g.years)));var tp=topicLine(g.closestTopic);if(tp){li.appendChild(document.createTextNode(" "));li.appendChild(tp)}if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
+    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
     card.appendChild(ul);
   }
 }
+// "Seen in: A, B and N more" from a theme's top programs and its program count; '' when it names none (same rule as seenIn in src/mcp/tools/throughlines.ts).
+function seenIn(c){
+  var names=(c.programs||[]).slice(0,2).map(function(p){return p.name});
+  if(!names.length)return "";
+  var more=Math.max(c.programCount||0,(c.programs||[]).length)-names.length;
+  if(more>0)return "Seen in: "+names.join(", ")+" and "+more+" more";
+  return "Seen in: "+(names.length===1?names[0]:names[0]+" and "+names[1]);
+}
 function renderThroughlines(d,out){
   var card=el("article","card tl");
-  card.appendChild(el("h3",null,d.topic&&(d.ranking==="topic"||d.ranking==="lexical")?"Ideas across programs, closest to \u201c"+d.topic+"\u201d":"Ideas that run across New America\u2019s programs"));
+  card.appendChild(el("h3",null,d.topic&&(d.ranking==="topic"||d.ranking==="lexical")?"Ideas on "+d.topic+" that recur across New America\u2019s work":d.program?"Ideas that recur across New America\u2019s work, including "+d.program:"Ideas that recur across New America\u2019s work"));
   if(d.note)card.appendChild(el("p","meta",d.note));
-  var al=d.alignment;
-  if(al)card.appendChild(el("p","meta",al.aligned+" of "+al.groupings+" groupings align with one site topic; "+al.concentrating+" of "+al.topics+" topics concentrate in a grouping"));
   var list=d.clusters||[];
-  if(!list.length)card.appendChild(el("p",null,"No cluster matched."));
+  if(!list.length)card.appendChild(el("p",null,"No theme matched."));
   list.forEach(function(c){
     var s=el("section","tl-cluster");
-    s.appendChild(el("h4",null,c.label||("Unlabelled cluster "+c.id)));
+    s.appendChild(el("h4",null,c.label||("Theme "+c.id+" (not yet named)")));
     if(c.sentence)s.appendChild(el("p","tl-sentence",c.sentence));
-    s.appendChild(el("div","meta",c.size+" documents \u00b7 "+c.programCount+" programs \u00b7 "+yearSpan(c.years)));
-    var tl=topicLine(c.closestTopic);if(tl)s.appendChild(tl);
+    var seen=seenIn(c);if(seen)s.appendChild(el("div","meta",seen));
     var ul=el("ul","tl-reps");
-    (c.representatives||[]).forEach(function(r){
+    (c.representatives||[]).slice(0,2).forEach(function(r){
       var li=el("li");li.appendChild(link(r.title||"(untitled)",r.url));
-      if(r.program)li.appendChild(el("span","tl-chip",r.program));
-      li.appendChild(el("span","tl-year",r.date?String(r.date).slice(0,4):"undated"));
+      if(r.date)li.appendChild(el("span","tl-year",String(r.date).slice(0,4)));
       ul.appendChild(li);
     });
     s.appendChild(ul);card.appendChild(s);
   });
-  var nf=(d.formats||[]).length;
-  if(nf)card.appendChild(el("p","meta","Also: "+nf+" format grouping"+(nf===1?"":"s")+" (talks, recaps, podcasts)"));
   siteBlocks(d,card);
   out.appendChild(card);
 }
@@ -491,7 +490,7 @@ function renderFunders(d,out){
   var card=el("article","card fd"),pubs=d.publications||[],items=d.items||[];
   card.appendChild(el("h3",null,d.funder?"Publications crediting "+((d.matched||[]).join(", ")||d.funder):"Who funded the work"+(d.groupBy&&d.groupBy!=="funder"?" (by "+d.groupBy+")":"")));
   if(d.note)card.appendChild(el("p","meta",d.note));
-  else card.appendChild(el("p","meta",d.total+(d.total===1?" publication names":" publications name")+" a funder in its own credit lines. Counts are a floor."));
+  else card.appendChild(el("p","meta",d.total+(d.total===1?" publication names":" publications name")+" a funder in its own credit lines. Some funded work names no funder, so the real numbers are higher."));
   if(pubs.length){
     var ol=el("ol","fd-pubs");
     pubs.forEach(function(p){
@@ -523,7 +522,7 @@ var CITE_SRC={wikipedia:"Wikipedia",hn:"Hacker News",openalex:"OpenAlex",in_the_
 function renderWhoCites(d,out){
   var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
   var h=el("h3",null,"Who cites ");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
-  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(d.live?" after a live refresh":"")+(doc.tier?" \u00b7 tier "+doc.tier:"")));
+  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(d.live?" after a live refresh":"")+(TIERS[doc.tier]?" \u00b7 "+TIERS[doc.tier]:"")));
   var row=el("div","fund-row");
   srcs.forEach(function(s){row.appendChild(el("span","tl-chip",(CITE_SRC[s.source]||s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
   card.appendChild(row);
@@ -590,6 +589,7 @@ function renderPeople(d,out){
     ol.appendChild(li);
   });
   if(list.length)card.appendChild(ol);
+  siteBlocks(d,card);
   out.appendChild(card);
 }
 function evWhen(s){if(!s)return "Date not listed";var t=String(s);return t.slice(0,10)+(t.length>10?" "+t.slice(11,16):"")}
@@ -684,7 +684,7 @@ async function run(){
   if(offline){health();return}
   if(locked)return;
   $("q").value="";grow();var t=turn(q);
-  t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
+  t.stage.textContent="Reading New America\u2019s publications and writing an answer (can take up to a minute)...";
   busy={q:q,stage:t.stage};$("go").disabled=true;$("ask").querySelector(".box").classList.add("busy");document.body.classList.add("pending");
   var out=t.body,t0=Date.now(),ctr=el("span","elapsed"),tick=null;
   function paint(){
@@ -696,7 +696,7 @@ async function run(){
     var r=await tool("answer",answerArgs(q),function(msg){t.stage.textContent=msg;t.stage.appendChild(ctr)});
     clearInterval(tick);ctr.remove();
     var d=r.data||{};
-    t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
+    t.stage.textContent=readAs(d);
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="funders"){renderFunders(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="who_cites"){renderWhoCites(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
