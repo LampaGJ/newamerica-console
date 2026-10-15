@@ -141,7 +141,7 @@ function compact(n){
   var k=n/1000;
   return (k<100?k.toFixed(1).replace(/\.0$/,''):String(Math.round(k)))+'k';
 }
-var STAT_LABELS=[['documents','pages'],['programs','programs'],['people','staff'],['terms','taxonomy terms'],['pdfs','PDFs'],['social','social posts']];
+var STAT_LABELS=[['documents','pages'],['programs','programs'],['people','contributors'],['terms','taxonomy terms'],['pdfs','PDFs'],['social','social posts']];
 // "Searching 22.5k pages · 60 programs · ..." with zero or missing fields hidden; '' when nothing is left.
 function statsLine(c){
   var parts=[];
@@ -341,14 +341,29 @@ function renderAnswer(d,q,out){
 function renderHelp(d,text,out){
   var card=el("article","card");
   card.appendChild(md(text||"",{}));
-  var ex=(d&&d.examples)||[];
+  var ex=((d&&d.examples)||[]).concat(d&&d.throughlinesExample?[d.throughlinesExample]:[]);
   if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
   out.appendChild(card);
 }
 function yearSpan(y){if(!y||y[0]==null)return "undated";return y[0]===y[1]?String(y[0]):y[0]+"\u2013"+y[1]}
+// Related on newamerica.org, then Discovered groupings, appended to a throughlines card or an agent answer.
+function siteBlocks(d,card){
+  var rel=d.related||{},ps=rel.programs||[],ts=rel.terms||[];
+  if(ps.length||ts.length){
+    card.appendChild(el("h4",null,"Related on newamerica.org"));
+    [["Programs",ps],["Topics and issues",ts]].forEach(function(p){if(!p[1].length)return;var row=el("div","fund-row");row.appendChild(el("span","fund-lab",p[0]));p[1].forEach(function(x){row.appendChild(link(x.name,x.url));row.appendChild(document.createTextNode(" "))});card.appendChild(row)});
+  }
+  var disc=d.discovered||[];
+  if(disc.length){
+    card.appendChild(el("h4",null,"Discovered groupings ("+(d.discoveredBy==="lexical"?"lexical":"from the vector index")+")"));
+    var ul=el("ul","tl-reps");
+    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));li.appendChild(el("span","tl-year",g.programCount+" programs \u00b7 "+yearSpan(g.years)));if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
+    card.appendChild(ul);
+  }
+}
 function renderThroughlines(d,out){
   var card=el("article","card tl");
-  card.appendChild(el("h3",null,d.topic&&d.ranking==="topic"?"Ideas across programs, closest to \u201c"+d.topic+"\u201d":"Ideas that cut across programs"));
+  card.appendChild(el("h3",null,d.topic&&(d.ranking==="topic"||d.ranking==="lexical")?"Ideas across programs, closest to \u201c"+d.topic+"\u201d":"Ideas that run across New America\u2019s programs"));
   if(d.note)card.appendChild(el("p","meta",d.note));
   var list=d.clusters||[];
   if(!list.length)card.appendChild(el("p",null,"No cluster matched."));
@@ -366,6 +381,9 @@ function renderThroughlines(d,out){
     });
     s.appendChild(ul);card.appendChild(s);
   });
+  var nf=(d.formats||[]).length;
+  if(nf)card.appendChild(el("p","meta","Also: "+nf+" format grouping"+(nf===1?"":"s")+" (talks, recaps, podcasts)"));
+  siteBlocks(d,card);
   out.appendChild(card);
 }
 function renderFunders(d,out){
@@ -567,6 +585,7 @@ async function run(){
       var sh=card.querySelector("ol.srcs");
       if(sh&&sh.previousSibling)sh.previousSibling.textContent="Sources ("+(d.citations||[]).length+")";
       moreSources(card,q);
+      siteBlocks(d,card);
       ratingPill(card,{request:q,text:String(d.answer||"")});
     }
     settle(t,"done");
