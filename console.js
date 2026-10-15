@@ -39,19 +39,47 @@ function hdrs(){
   var h={'Authorization':'Bearer '+token(),'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-protocol-version':PROTO};
   if(sess)h['mcp-session-id']=sess;return h;
 }
-async function rpc(body,isNote){
+async function rpc(body,isNote,onProgress){
   var r=await http('/mcp',{method:'POST',headers:hdrs(),body:JSON.stringify(body)});
   if(isNote){if(!r.ok&&r.status!==202)throw {kind:'srv',msg:'Server error '+r.status+' on notification.'};return null}
   if(r.status===404&&sess){sess=null;throw {kind:'srv',msg:'Session expired; try again.'}}
   if(!r.ok)throw {kind:'srv',msg:'Server error '+r.status+' '+(await r.text()).slice(0,200)};
   var sid=r.headers.get('mcp-session-id');if(sid)sess=sid;
-  var t=await r.text(),j;
-  try{j=JSON.parse(t)}catch(e){
-    var m=t.match(/^data:\s*(\{.*\})\s*$/m);
-    if(!m)throw {kind:'srv',msg:'Unreadable server reply.'};j=JSON.parse(m[1]);
+  var ct=r.headers.get('content-type')||'',j;
+  if(/text\/event-stream/i.test(ct)&&r.body&&r.body.getReader)j=await readSse(r,body,onProgress);
+  else{
+    var t=await r.text();
+    try{j=JSON.parse(t)}catch(e){
+      var m=t.match(/^data:\s*(\{.*\})\s*$/m);
+      if(!m)throw {kind:'srv',msg:'Unreadable server reply.'};j=JSON.parse(m[1]);
+    }
   }
   if(j.error)throw {kind:'srv',msg:'Server: '+(j.error.message||JSON.stringify(j.error))};
   return j.result;
+}
+// Stream the SSE body: events end at a blank line; progress notifications go to onProgress, the object carrying our id is the reply.
+async function readSse(r,body,onProgress){
+  var rd=r.body.getReader(),dec=new TextDecoder(),buf='',fin=null;
+  function ev(raw){
+    var data=raw.split(/\r?\n/).filter(function(l){return /^data:/.test(l)}).map(function(l){return l.replace(/^data:\s?/,'')}).join('\n');
+    if(!data)return;
+    var o;try{o=JSON.parse(data)}catch(e){return}
+    if(o&&o.method==='notifications/progress'&&o.params&&o.params.progressToken===body.id){
+      if(onProgress&&typeof o.params.message==='string'&&o.params.message)try{onProgress(o.params.message)}catch(e){}
+    }else if(o&&o.id===body.id&&(o.result!==undefined||o.error))fin=o;
+  }
+  try{
+    for(;;){
+      var c=await rd.read();
+      if(c.done)break;
+      buf+=dec.decode(c.value,{stream:true});
+      var parts=buf.split(/\r?\n\r?\n/);buf=parts.pop();
+      parts.forEach(ev);
+    }
+    buf+=dec.decode();if(buf.trim())ev(buf);
+  }catch(e){throw netErr(e)}
+  if(!fin)throw {kind:'srv',msg:'Unreadable server reply.'};
+  return fin;
 }
 async function init(){
   var key=base()+'|'+token();
@@ -62,9 +90,10 @@ async function init(){
     await rpc({jsonrpc:'2.0',method:'notifications/initialized'},true);
   }catch(e){sess=null;connKey='';throw e}
 }
-async function tool(name,args){
+async function tool(name,args,onProgress){
   await init();
-  var res=await rpc({jsonrpc:'2.0',id:rid++,method:'tools/call',params:{name:name,arguments:args}});
+  var id=rid++;
+  var res=await rpc({jsonrpc:'2.0',id:id,method:'tools/call',params:{name:name,arguments:args,_meta:{progressToken:id}}},false,onProgress);
   var txt=res&&res.content&&res.content[0]&&res.content[0].text||'';
   if(res&&res.isError)throw {kind:'srv',msg:txt||'Tool error.'};
   return {data:res&&res.structuredContent,text:txt};
@@ -325,9 +354,15 @@ async function run(){
   $("q").value="";grow();var t=turn(q);
   t.stage.textContent="Reading the corpus and writing an answer (can take up to a minute)...";
   busy={q:q,stage:t.stage};$("go").disabled=true;$("ask").querySelector(".box").classList.add("busy");document.body.classList.add("pending");
-  var out=t.body;
+  var out=t.body,t0=Date.now(),ctr=el("span","elapsed"),tick=null;
+  function paint(){
+    ctr.textContent=" \u00b7 "+Math.floor((Date.now()-t0)/1000)+" s";
+    if(ctr.parentNode!==t.stage)t.stage.appendChild(ctr);
+  }
+  paint();tick=setInterval(paint,1000);
   try{
-    var r=await tool("answer",{request:q});
+    var r=await tool("answer",{request:q},function(msg){t.stage.textContent=msg;t.stage.appendChild(ctr)});
+    clearInterval(tick);ctr.remove();
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
     if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
@@ -342,6 +377,7 @@ async function run(){
     }
     settle(t,"done");
   }catch(e){
+    clearInterval(tick);ctr.remove();
     e=netErr(e);
     if(e.kind==="srv"&&/unavailable/i.test(e.msg)){
       t.stage.textContent="The written answer is unavailable ("+e.msg+"). Showing the ranked sources instead.";
@@ -349,7 +385,7 @@ async function run(){
       catch(e2){e2=netErr(e2);t.stage.textContent="";out.appendChild(el("p","meta",e2.msg));settle(t,"error")}
     }else{t.stage.textContent="";out.appendChild(el("p","meta",e.msg));settle(t,"error")}
   }
-  finally{busy=null;$("go").disabled=!!offline;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
+  finally{clearInterval(tick);busy=null;$("go").disabled=!!offline;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
 $("q").oninput=grow;

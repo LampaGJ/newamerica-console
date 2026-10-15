@@ -40,6 +40,7 @@ code,pre{overflow-wrap:anywhere}pre{max-width:100%;white-space:pre-wrap}
 .chips{display:flex;flex-direction:column;gap:.5rem;margin:.6rem 0}
 .welcome{margin:1.5rem 0}.welcome h2{border:0;margin:0 0 .3rem}
 .stage{font-size:.85rem;color:var(--warn);margin:.4rem 0}
+.stage .elapsed{font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.75}
 .more{margin-top:.8rem}.more summary{font-weight:600}
 .card{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:1.1rem 1.4rem 1.3rem}
 .card.has-rate{position:relative;padding-bottom:3.1rem}
