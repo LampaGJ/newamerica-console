@@ -518,20 +518,22 @@ function renderFunders(d,out){
   }
   out.appendChild(card);
 }
-var CITE_SRC={wikipedia:"Wikipedia",hn:"Hacker News",openalex:"OpenAlex",in_the_news:"In the News"};
+// Source labels and the footer come from the card (the server's source registry, src/citations/sources.ts); the page keeps no copy.
+function citeLabel(d,s){return (d.labels&&d.labels[s])||s}
+function citeFooter(card,d){if(!d.footer)return;card.appendChild(el("p","meta fd-credit",d.footer.checked));card.appendChild(el("p","meta fd-credit",d.footer.notCovered))}
 function renderWhoCites(d,out){
   var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
   var h=el("h3",null,"Who cites ");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
   card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(d.live?" after a live refresh":"")+(TIERS[doc.tier]?" \u00b7 "+TIERS[doc.tier]:"")));
   var row=el("div","fund-row");
-  srcs.forEach(function(s){row.appendChild(el("span","tl-chip",(CITE_SRC[s.source]||s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
+  srcs.forEach(function(s){row.appendChild(el("span","tl-chip",citeLabel(d,s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
   card.appendChild(row);
-  srcs.forEach(function(s){if(s.note&&s.note!=="not requested")card.appendChild(el("p","meta",(CITE_SRC[s.source]||s.source)+": "+s.note))});
+  srcs.forEach(function(s){if(s.note&&s.note!=="not requested"&&s.status!=="skipped")card.appendChild(el("p","meta",citeLabel(d,s.source)+": "+s.note))});
   if(d.note)card.appendChild(el("p","meta",d.note));
   if(items.length){
     var ol=el("ol","fd-pubs");
     items.forEach(function(it){
-      var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));t.appendChild(el("span","tl-chip",CITE_SRC[it.source]||it.source));
+      var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));t.appendChild(el("span","tl-chip",citeLabel(d,it.source)));
       if(it.match==="inferred")t.appendChild(el("span","tl-chip","inferred"));li.appendChild(t);
       li.appendChild(el("div","meta",[it.venue,it.author,it.date?String(it.date).slice(0,10):"",it.cited_by_count!=null?"cited by "+it.cited_by_count:""].filter(Boolean).join(" \u00b7 ")));
       ol.appendChild(li);
@@ -539,22 +541,30 @@ function renderWhoCites(d,out){
     card.appendChild(ol);
   }
   if(items.some(function(i){return i.match==="inferred"}))card.appendChild(el("p","meta fd-credit","In the News matches are inferred from shared title words (at least "+Math.round((d.inferredThreshold||0)*100)+"%). Check one before quoting it."));
+  citeFooter(card,d);
   out.appendChild(card);
 }
 function renderCitationReport(d,out){
   var card=el("article","card fd"),docs=d.documents||[];
   card.appendChild(el("h3",null,"Who cites New America"+(d.since?" since "+d.since:"")));
   if(d.note)card.appendChild(el("p","meta",d.note));
-  var row=el("div","fund-row");
-  (d.totals||[]).forEach(function(t){row.appendChild(el("span","tl-chip",(CITE_SRC[t.source]||t.source)+" "+t.rows))});
-  card.appendChild(row);
+  var tl={};(d.totals||[]).forEach(function(t){tl[t.source]=t});
+  var chips=function(ids){var r=el("div","fund-row");ids.forEach(function(s){var t=tl[s]||{};r.appendChild(el("span","tl-chip",(t.label||s)+" "+(t.rows||0)))});return r};
+  var tally=function(g){return g.rows+(g.rows===1?" mention":" mentions")+", "+g.matched+" matched to a document"};
+  // One section per kind (news, books, scholarly, government, social, web, site); government splits into Congress, State legislatures and Federal agencies.
+  (d.kinds||[]).forEach(function(k){
+    var sec=el("section","cite-kind");sec.appendChild(el("h4",null,k.label+" \u00b7 "+tally(k)));
+    if((k.groups||[]).length)k.groups.forEach(function(g){sec.appendChild(el("h5",null,g.label+" \u00b7 "+tally(g)));sec.appendChild(chips(g.sources||[]))});
+    else sec.appendChild(chips(k.sources||[]));
+    card.appendChild(sec);
+  });
   card.appendChild(el("h4",null,"Most-cited documents"));
   if(docs.length){
     var ol=el("ol","fd-rank");
     docs.forEach(function(x){
       var li=el("li");li.appendChild(link(x.title||"(untitled)",x.url));
       li.appendChild(el("span","meta"," \u00b7 "+x.total+(x.total===1?" citation":" citations")));
-      var r=el("div","fund-row");Object.keys(x.bySource||{}).forEach(function(k){r.appendChild(el("span","tl-chip",(CITE_SRC[k]||k)+" "+x.bySource[k]))});li.appendChild(r);
+      var r=el("div","fund-row");Object.keys(x.bySource||{}).forEach(function(k){r.appendChild(el("span","tl-chip",((tl[k]||{}).label||k)+" "+x.bySource[k]))});li.appendChild(r);
       ol.appendChild(li);
     });
     card.appendChild(ol);
@@ -567,7 +577,7 @@ function renderCitationReport(d,out){
     card.appendChild(el("h4",null,"Scholarly works (OpenAlex)"));
     var su=el("ul");d.scholarly.forEach(function(w){var li=el("li");li.appendChild(link(w.title||"(untitled)",w.url));li.appendChild(el("span","meta"," \u00b7 "+[w.venue,w.date?String(w.date).slice(0,10):"","cited by "+(w.cited_by_count||0)].filter(Boolean).join(" \u00b7 ")));su.appendChild(li)});card.appendChild(su);
   }
-  if((d.runs||[]).length)card.appendChild(el("p","meta","Last collected: "+d.runs.map(function(r){return (CITE_SRC[r.source]||r.source)+" "+String(r.fetched_at).slice(0,10)+(r.status==="ok"?"":" ("+r.status+")")}).join(" \u00b7 ")));
+  citeFooter(card,d);
   out.appendChild(card);
 }
 function renderPeople(d,out){

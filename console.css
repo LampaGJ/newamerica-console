@@ -61,6 +61,7 @@ code,pre{overflow-wrap:anywhere}pre{max-width:100%;white-space:pre-wrap}
 @keyframes ratePop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
 @media (pointer:coarse){.rate-btn{width:44px;height:44px}.card.has-rate{padding-bottom:4.2rem}}
 .card h4{margin:1rem 0 .3rem;font-size:1rem}
+.cite-kind h5{margin:.5rem 0 .2rem .6rem;font-size:.9rem;font-weight:600}.cite-kind h5+.fund-row{margin-left:.6rem}
 .md{line-height:1.4}
 .md p{margin:0 0 1em;line-height:1.4}.md>p:first-child{margin-top:0}.md>p:last-child{margin-bottom:0}
 .md ul{margin:0 0 1em;padding-left:1.3rem}.md ul:last-child{margin-bottom:0}
