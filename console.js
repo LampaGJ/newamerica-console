@@ -361,7 +361,7 @@ var STARTERS=["What ideas cut across programs?","Who should I talk to about appr
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
-  w.appendChild(el("p","meta","Ask in plain words. I search New America publications and write a short answer with sources. Type help to see what I can do."));
+  w.appendChild(el("p","meta","Ask about New America's work in plain words to receive a tailored answer with sources. Type help to see what I can do."));
   w.appendChild(chips(STARTERS));$("out").appendChild(w);
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
