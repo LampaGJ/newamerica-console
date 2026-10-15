@@ -418,24 +418,13 @@ function moreSources(card,q){
     catch(e){e=netErr(e);slot.textContent=e.msg}
   };
 }
-function fnvHex(t){
-  var out="",h=2166136261;
-  for(var r=0;r<8;r++){
-    for(var i=0;i<t.length;i++){h^=t.charCodeAt(i)+r;h=Math.imul(h,16777619)>>>0}
-    out+=("00000000"+h.toString(16)).slice(-8);
-  }
-  return out;
-}
+function canHash(){return !!(window.crypto&&crypto.subtle&&window.TextEncoder)}
 async function sha256Hex(text){
-  try{
-    if(window.crypto&&crypto.subtle&&window.TextEncoder){
-      var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
-      return Array.prototype.map.call(new Uint8Array(buf),function(b){return ("0"+b.toString(16)).slice(-2)}).join("");
-    }
-  }catch(e){}
-  return fnvHex(String(text));
+  var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
+  return Array.prototype.map.call(new Uint8Array(buf),function(b){return ("0"+b.toString(16)).slice(-2)}).join("");
 }
 function ratingPill(card,ctx){
+  if(!canHash())return;
   card.classList.add("has-rate");
   var pill=el("div","rate");pill.setAttribute("role","group");pill.setAttribute("aria-label","Rate this answer");
   var up=el("button","rate-btn rate-up");up.type="button";up.setAttribute("aria-label","Good answer");up.setAttribute("aria-pressed","false");up.appendChild(el("span","ico ico--up"));
