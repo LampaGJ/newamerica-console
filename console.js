@@ -621,6 +621,31 @@ function moreSources(card,q){
     catch(e){e=netErr(e);slot.textContent=e.msg}
   };
 }
+//#history-start
+// The conversation window: the last 8 turns, in this browser's localStorage only (never the URL, never a log). It rides only on
+// the answer call; the server re-applies the same caps (src/mcp/conversation.ts HistorySchema).
+var HIST_KEY="na.history",HIST_TURNS=8,HIST_CHARS=1500,HIST_TOTAL=8000,HIST_CITES=12,HIST_TITLE=200;
+function histFit(h){
+  h=h.filter(function(t){return t&&(t.role==="user"||t.role==="assistant")&&typeof t.text==="string"&&t.text.trim()}).map(function(t){
+    var o={role:t.role,text:t.text.slice(0,HIST_CHARS)};if(typeof t.ts==="string")o.ts=t.ts;
+    var cs=Array.isArray(t.citations)?t.citations.filter(function(c){return c&&typeof c.id==="number"&&Math.floor(c.id)===c.id}).slice(0,HIST_CITES).map(function(c){return {id:c.id,title:String(c.title||"").slice(0,HIST_TITLE)}}):[];
+    if(cs.length)o.citations=cs;return o;
+  }).slice(-HIST_TURNS);
+  function total(){return h.reduce(function(n,t){return n+t.text.length},0)}
+  while(h.length&&total()>HIST_TOTAL)h=h.slice(1);
+  return h;
+}
+function histLoad(){try{var h=JSON.parse(ls(HIST_KEY)||"[]");return Array.isArray(h)?histFit(h):[]}catch(e){return []}}
+function histAdd(q,text,cites){
+  var ts=new Date().toISOString(),h=histLoad();
+  h.push({role:"user",text:q,ts:ts});
+  if(text)h.push({role:"assistant",text:text,ts:ts,citations:cites||[]});
+  ls(HIST_KEY,JSON.stringify(histFit(h)));return histLoad();
+}
+function histClear(){try{localStorage.removeItem(HIST_KEY)}catch(e){}}
+function answerArgs(q){var h=histLoad();return h.length?{request:q,history:h}:{request:q}}
+//#history-end
+function newChatShown(){var b=$("newchat");if(b)b.hidden=histLoad().length===0}
 function canHash(){return !!(window.crypto&&crypto.subtle&&window.TextEncoder)}
 async function sha256Hex(text){
   var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
@@ -668,7 +693,7 @@ async function run(){
   }
   paint();tick=setInterval(paint,1000);
   try{
-    var r=await tool("answer",{request:q},function(msg){t.stage.textContent=msg;t.stage.appendChild(ctr)});
+    var r=await tool("answer",answerArgs(q),function(msg){t.stage.textContent=msg;t.stage.appendChild(ctr)});
     clearInterval(tick);ctr.remove();
     var d=r.data||{};
     t.stage.textContent=d.kind==="help"?"":(d.interpreted&&d.interpreted.length?"Interpreted as: "+d.interpreted.join("; "):"");
@@ -689,6 +714,7 @@ async function run(){
       siteBlocks(d,card);
       ratingPill(card,{request:q,text:String(d.answer||"")});
     }
+    histAdd(q,d.answer?String(d.answer):String(r.text||""),d.citations);newChatShown();
     settle(t,"done");
   }catch(e){
     clearInterval(tick);ctr.remove();
@@ -702,9 +728,10 @@ async function run(){
   finally{clearInterval(tick);busy=null;$("go").disabled=!!offline;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
+$("newchat").onclick=function(){if(busy)return;histClear();newChatShown();$("out").textContent="";welcome();$("q").focus()};
 $("q").oninput=grow;
 $("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
 (function(){var f=document.querySelector(".composer"),r=document.documentElement;function m(){r.style.setProperty("--composer-h",f.offsetHeight+"px")}m();if(window.ResizeObserver)new ResizeObserver(m).observe(f);else window.addEventListener("resize",m)})();
-gate();welcome();
+gate();welcome();newChatShown();
 health();
 })();
