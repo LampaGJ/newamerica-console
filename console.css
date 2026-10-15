@@ -162,3 +162,4 @@ html{scroll-behavior:auto}
 .pp-av--none{display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;color:var(--mut)}
 .pp-why{margin:.25rem 0 .15rem}
 .ev-fmt{vertical-align:middle}
+.soc-chip{display:inline-block;font-size:.75rem;border:1px solid var(--line);color:var(--mut);border-radius:99px;padding:0 .5rem;margin:0 .4rem 0 0;line-height:1.4;vertical-align:middle}h3 .soc-chip{margin:0 0 0 .4rem}

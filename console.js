@@ -144,8 +144,21 @@ function blurbs(parent,o){
   if(o&&typeof o.why==="string"&&o.why.trim())parent.appendChild(el("p","why",o.why.trim()));
   if(o&&typeof o.blurb==="string"&&o.blurb.trim())parent.appendChild(el("p","blurb",o.blurb.trim()));
 }
+function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
+function socialBy(o){
+  var a=typeof o.author==='string'&&o.author.trim()?o.author.trim():(Array.isArray(o.authors)&&o.authors.length?o.authors.map(function(p){return typeof p==='string'?p:(p&&p.name)||''}).filter(Boolean).join(', '):'');
+  return a;
+}
 function item(it){
   var d=el('article','item');
+  if(it.kind==='social'){
+    d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')));
+    var sh=el('h3');sh.appendChild(link(it.title||'(untitled)',it.url));sh.appendChild(el('span','soc-chip','Social post'));d.appendChild(sh);
+    var sb=socialBy(it);if(sb)d.appendChild(el('div','authors','By '+sb));
+    blurbs(d,it);
+    if(it.abstract)d.appendChild(el('p','abs',it.abstract));
+    return d;
+  }
   d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')+(it.program?' · '+it.program:'')));
   var h=el('h3');h.appendChild(link(it.title||'(untitled)',it.url));
   if(it.external)h.appendChild(el('span','badge','(coverage)'));
@@ -166,6 +179,7 @@ function item(it){
   ['types','programs','topics','issues','projects'].forEach(function(k){(t[k]||[]).forEach(function(v){tg.appendChild(el('span',null,typeof v==='string'?v:(v.name||v.title||'')))})});
   if(tg.childNodes.length)d.appendChild(tg);
   if(it.abstract)d.appendChild(el('p','abs',it.abstract));
+  if(!numId(it.id))return d;
   var acts=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite');
   rb.type=cb.type='button';acts.appendChild(rb);acts.appendChild(cb);d.appendChild(acts);
   var slot=el('div');d.appendChild(slot);
@@ -272,7 +286,9 @@ function renderAnswer(d,q,out){
     d.citations.forEach(function(c){
       var li=el("li");li.id="src-"+c.n;li.value=c.n;
       var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
-      var mt=el("div","meta",[c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
+      var soc=c.kind==="social";
+      var mt=el("div","meta",[soc?"":c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
+      if(soc)mt.insertBefore(el("span","soc-chip","Social post"),mt.firstChild);
       var pu=safeUrl(c.pdfUrl);
       if(pu){var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(c.title||"this source")+" (new tab)");mt.appendChild(document.createTextNode(" "));mt.appendChild(pa)}
       if(c.chapters>0){mt.appendChild(el("span","chap-note"," "+c.chapters+(c.chapters===1?" chapter":" chapters")))}
@@ -280,6 +296,7 @@ function renderAnswer(d,q,out){
       if(c.funders&&c.funders.length){var fr=el("div","fund-row");fr.appendChild(el("span","fund-lab","Funded by"));c.funders.forEach(function(f){fr.appendChild(el("span","tl-chip",f))});li.appendChild(fr)}
       var au=(c.authorDetails||[]);
       if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
+      else if(soc){var sb=socialBy(c);if(sb)li.appendChild(el("div","meta","By "+sb))}
       else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
       blurbs(li,c);
       ol.appendChild(li);
