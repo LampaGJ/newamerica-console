@@ -273,7 +273,11 @@ function renderAnswer(d,q,out){
     d.citations.forEach(function(c){
       var li=el("li");li.id="src-"+c.n;li.value=c.n;
       var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
-      li.appendChild(el("div","meta",[c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · ")));
+      var mt=el("div","meta",[c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
+      var pu=safeUrl(c.pdfUrl);
+      if(pu){var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(c.title||"this source")+" (new tab)");mt.appendChild(document.createTextNode(" "));mt.appendChild(pa)}
+      if(c.chapters>0){mt.appendChild(el("span","chap-note"," "+c.chapters+(c.chapters===1?" chapter":" chapters")))}
+      li.appendChild(mt);
       var au=(c.authorDetails||[]);
       if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
       else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
