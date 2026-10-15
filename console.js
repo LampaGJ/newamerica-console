@@ -176,7 +176,39 @@ function blurbs(parent,o){
   if(o&&typeof o.why==="string"&&o.why.trim())parent.appendChild(el("p","why",o.why.trim()));
   if(o&&typeof o.blurb==="string"&&o.blurb.trim())parent.appendChild(el("p","blurb",o.blurb.trim()));
 }
+//#rows-start
 function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
+// "See more like this (n)" for a positive related_count, '' otherwise (the link is then not rendered).
+function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?'See more like this ('+Math.floor(n)+')':''}
+var TAG_KEYS=['types','programs','topics','issues','projects'],TAG_MAX=6;
+// Every taxonomy name on a row, known taxonomies first, then any other key; the row's own program and repeats dropped.
+function tagNames(t,skip){
+  var seen={},out=[];t=t&&typeof t==='object'?t:{};
+  Object.keys(t).sort(function(a,b){var i=TAG_KEYS.indexOf(a),j=TAG_KEYS.indexOf(b);return (i<0?99:i)-(j<0?99:j)||(a<b?-1:a>b?1:0)}).forEach(function(k){
+    (Array.isArray(t[k])?t[k]:[]).forEach(function(v){var s=String(typeof v==='string'?v:(v&&(v.name||v.title))||'').trim();if(s&&s!==skip&&!seen[s]){seen[s]=1;out.push(s)}});
+  });
+  return out;
+}
+// Muted second line under a source title: "<Program> · <tag> · <tag> … +n"; the program links to its landing page when known.
+function progRow(o){
+  if(!o)return null;
+  var names=tagNames(o.tags,o.program),r=el('div','prog-row'),first=true;
+  if(!o.program&&!names.length)return null;
+  function sep(){if(!first){var s=el('span','sep',' \u00b7 ');s.setAttribute('aria-hidden','true');r.appendChild(s)}first=false}
+  if(o.program){sep();var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='prog';else{var sp=el('span','prog');sp.appendChild(p);p=sp}r.appendChild(p)}
+  names.slice(0,TAG_MAX).forEach(function(n){sep();r.appendChild(el('span','tag-chip',n))});
+  if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
+  return r;
+}
+// Read / Cite and, when related_count > 0, "See more like this (n)" for a numbered document row; null for social posts and rows without an id.
+function actsRow(o){
+  if(!o||!numId(o.id)||o.kind==='social')return null;
+  var box=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
+  rb.type=cb.type='button';box.appendChild(rb);box.appendChild(cb);
+  if(lab){mb=el('button','more-like',lab);mb.type='button';box.appendChild(mb)}
+  return {box:box,rb:rb,cb:cb,mb:mb};
+}
+//#rows-end
 function socialBy(o){
   var a=typeof o.author==='string'&&o.author.trim()?o.author.trim():(Array.isArray(o.authors)&&o.authors.length?o.authors.map(function(p){return typeof p==='string'?p:(p&&p.name)||''}).filter(Boolean).join(', '):'');
   return a;
@@ -191,10 +223,11 @@ function item(it){
     if(it.abstract)d.appendChild(el('p','abs',it.abstract));
     return d;
   }
-  d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')+(it.program?' · '+it.program:'')));
+  d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')));
   var h=el('h3');h.appendChild(link(it.title||'(untitled)',it.url));
   if(it.external)h.appendChild(el('span','badge','(coverage)'));
   d.appendChild(h);
+  var pr=progRow(it);if(pr)d.appendChild(pr);
   if(it.authors&&it.authors.length){
     var a=el('div','authors');
     it.authors.forEach(function(p){
@@ -207,14 +240,17 @@ function item(it){
     });d.appendChild(a);
   }
   blurbs(d,it);
-  var t=it.tags||{},tg=el('div','tags');
-  ['types','programs','topics','issues','projects'].forEach(function(k){(t[k]||[]).forEach(function(v){tg.appendChild(el('span',null,typeof v==='string'?v:(v.name||v.title||'')))})});
-  if(tg.childNodes.length)d.appendChild(tg);
   if(it.abstract)d.appendChild(el('p','abs',it.abstract));
-  if(!numId(it.id))return d;
-  var acts=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite');
-  rb.type=cb.type='button';acts.appendChild(rb);acts.appendChild(cb);d.appendChild(acts);
-  var slot=el('div');d.appendChild(slot);
+  var a=actsRow(it);if(!a)return d;
+  var slot=el('div');d.appendChild(a.box);d.appendChild(slot);
+  wireActs(it,a,slot);
+  return d;
+}
+var REDUCED=function(){return matchMedia("(prefers-reduced-motion: reduce)").matches};
+// Read, Cite and See more like this on one source row; slot holds the Read/Cite output under the row.
+function wireActs(it,a,slot){
+  var rb=a.rb,cb=a.cb;
+  if(a.mb)a.mb.onclick=function(){openExplore(it,a.mb)};
   rb.onclick=async function(){
     if(slot.firstChild&&slot.firstChild.className==='doc'){slot.textContent='';return}
     rb.disabled=true;
@@ -237,7 +273,59 @@ function item(it){
     }catch(e){e=netErr(e);slot.textContent=e.msg}
     cb.disabled=false;
   };
-  return d;
+}
+// The explore card for one source, inserted after the card holding the clicked link (the answer, or an earlier explore card).
+// A second click scrolls to that card; after a failed load it removes the error card and retries.
+async function openExplore(it,btn){
+  if(btn._xp&&btn._xp.isConnected&&!btn._xp.classList.contains("xp-err")){btn._xp.scrollIntoView({block:"start",behavior:REDUCED()?"auto":"smooth"});return}
+  if(btn._xp){btn._xp.remove();btn._xp=null}
+  var anchor=btn.closest(".card")||btn.closest(".item")||btn.parentNode;
+  var card=el("article","card xp");card.setAttribute("aria-busy","true");
+  card.appendChild(el("p","meta","Reading \u201c"+(it.title||"this source")+"\u201d and finding sources like it..."));
+  anchor.parentNode.insertBefore(card,anchor.nextSibling);btn._xp=card;btn.disabled=true;
+  try{var r=await tool("explore",{id:it.id});card.textContent="";renderExplore(r.data||{},card)}
+  catch(e){e=netErr(e);card.textContent="";card.classList.add("xp-err");card.appendChild(el("p","meta",e.msg+" Select \u201c"+btn.textContent+"\u201d again to retry."))}
+  card.removeAttribute("aria-busy");btn.disabled=false;
+  card.scrollIntoView({block:"start",behavior:REDUCED()?"auto":"smooth"});
+}
+function pdfPill(parent,url,title){
+  var pu=safeUrl(url);if(!pu)return;
+  var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(title||"this source")+" (new tab)");
+  parent.appendChild(document.createTextNode(" "));parent.appendChild(pa);
+}
+// Detailed summary (title, tier and date, program line, lead, outline, key paragraphs, PDF and chapters), then Related sources rows with the same controls.
+function renderExplore(d,card){
+  var doc=d.document||{};
+  var h=el("h3");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
+  card.appendChild(el("div","meta",[doc.tier?"Tier "+doc.tier+(doc.tierName?" "+doc.tierName:""):"",doc.date?String(doc.date).slice(0,10):"undated",doc.label].filter(Boolean).join(" \u00b7 ")));
+  var pr=progRow(doc);if(pr)card.appendChild(pr);
+  if(d.lead)card.appendChild(el("p","abs",d.lead));
+  var ol=(d.outline||[]).slice(0,20);
+  if(ol.length){
+    card.appendChild(el("h4",null,"Outline"));
+    var top=Math.min.apply(null,ol.map(function(x){return x.level||2})),ul=el("ul","xp-outline");
+    ol.forEach(function(x){var li=el("li",null,x.text),dep=Math.max(0,Math.min(4,(x.level||2)-top));if(dep)li.style.marginLeft=dep+"rem";ul.appendChild(li)});
+    card.appendChild(ul);
+  }
+  (d.keyParagraphs||[]).forEach(function(p){card.appendChild(el("p","xp-key",p))});
+  var ch=d.chapters||{};
+  if(safeUrl(d.pdfUrl)||ch.count>0){var m=el("div","meta");pdfPill(m,d.pdfUrl,doc.title);if(ch.count>0)m.appendChild(el("span","chap-note"," "+ch.count+(ch.count===1?" chapter":" chapters")));card.appendChild(m)}
+  var rel=d.related||{},items=rel.items||[];
+  card.appendChild(el("h4",null,"Related sources"+(items.length?" ("+items.length+")":"")));
+  if(rel.matched_by==="lexical")card.appendChild(el("p","meta fine","Matched by title and lead words"+(rel.fallbackReason?" ("+rel.fallbackReason+")":"")+"."));
+  if(!items.length){card.appendChild(el("p","meta",rel.note||"Nothing similar was found."));return}
+  var list=el("ol","srcs xp-rel");
+  items.forEach(function(it){
+    var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));li.appendChild(t);
+    var p2=progRow(it);if(p2)li.appendChild(p2);
+    var mt=el("div","meta",[it.date?String(it.date).slice(0,4):"undated",it.label].filter(Boolean).join(" \u00b7 "));
+    if(typeof it.similarity==="number")mt.appendChild(el("span","sim"," \u00b7 "+Math.round(it.similarity*100)+"% similar"));
+    li.appendChild(mt);
+    if(it.blurb)li.appendChild(el("p","blurb",it.blurb));
+    var a=actsRow(it);if(a){var slot=el("div");li.appendChild(a.box);li.appendChild(slot);wireActs(it,a,slot)}
+    list.appendChild(li);
+  });
+  card.appendChild(list);
 }
 
 function interp(d){return d&&d.interpreted&&d.interpreted.length?" · Interpreted as: "+d.interpreted.join("; "):""}
@@ -318,7 +406,7 @@ function renderAnswer(d,q,out){
     d.citations.forEach(function(c){
       var li=el("li");li.id="src-"+c.n;li.value=c.n;
       var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
-      var soc=c.kind==="social";
+      var soc=c.kind==="social",cpr=soc?null:progRow(c);if(cpr)li.appendChild(cpr);
       var mt=el("div","meta",[soc?"":c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
       if(soc)mt.insertBefore(el("span","soc-chip","Social post"),mt.firstChild);
       var pu=safeUrl(c.pdfUrl);
@@ -331,6 +419,7 @@ function renderAnswer(d,q,out){
       else if(soc){var sb=socialBy(c);if(sb)li.appendChild(el("div","meta","By "+sb))}
       else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
       blurbs(li,c);
+      var ca=actsRow(c);if(ca){var cs=el("div");li.appendChild(ca.box);li.appendChild(cs);wireActs(c,ca,cs)}
       ol.appendChild(li);
     });card.appendChild(ol);
   }
