@@ -328,12 +328,10 @@ function renderExplore(d,card){
   card.appendChild(list);
 }
 
-// The quiet tag above an answer (docs/voice.md): "Themes" on a themes answer, "Answering as a question about <topic>" when the question was narrowed to a topic, else nothing.
+// The quiet tag above an answer (docs/voice.md): "Themes" on a themes answer, else nothing. The "Answering as a question about <topic>" tag is gone (#116): the topic was the server's stripped residue and read as garbage.
 function readAs(d){
   if(!d||d.kind==="help")return "";
-  if(d.kind==="throughlines")return "Themes";
-  var t=(d.interpreted||[]).map(function(i){var m=/^topic: \u201c?"?([^"\u201d]+)"?\u201d?/.exec(i);return m?m[1]:""}).filter(Boolean)[0];
-  return t?"Answering as a question about "+t:"";
+  return d.kind==="throughlines"?"Themes":"";
 }
 function toEnd(n){n.scrollIntoView({block:"end",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
 function settle(t,state){
@@ -363,12 +361,52 @@ function chips(list){
   list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
   return box;
 }
-var STARTERS=["What ideas cut across programs?","Who should I talk to about apprenticeships?","Which reports has the Gates Foundation funded?","Where does New America get its funding?","Who cites New America's work?"];
+//#starters-start
+// t: "r" research question (g = issue area) or "i" institution question (g = category). live:false holds a question out of the rotation until its fix lands (none held now: funding went live with #117 and #119).
+var STARTERS=[
+{t:"r",g:"thriving-families",q:"How did Vermont get universal child care, and could other states copy it?"},
+{t:"r",g:"thriving-families",q:"What do parents of young children say they need most, in New America's National Parent Survey?"},
+{t:"r",g:"thriving-families",q:"What does New America recommend for running a cash assistance program well?"},
+{t:"r",g:"technology-democracy",q:"What did New America say about Apple's privacy changes, and why did it call them concerning?"},
+{t:"r",g:"technology-democracy",q:"What has New America written about artificial intelligence since 2020?"},
+{t:"r",g:"technology-democracy",q:"What does New America recommend to protect college students' data privacy?"},
+{t:"r",g:"democratic-futures",q:"What did Political Reform find in its new polling on ballot initiatives in states without them?"},
+{t:"r",g:"democratic-futures",q:"What does Mark Schmitt argue in Democracy Reforms Go Better Together?"},
+{t:"r",g:"education-work",q:"What does Varying Degrees 2025 show about where Americans agree and disagree on higher education?"},
+{t:"r",g:"education-work",q:"What went wrong when a for-profit college replaced its instructors with a chatbot?"},
+{t:"r",g:"global-security",q:"What does New America say about the risk of data centers becoming targets, and how to protect them?"},
+{t:"r",g:"global-security",q:"Why do so few women work in cybersecurity?"},
+{t:"i",g:"history",q:"How did New America begin?"},
+{t:"i",g:"history",q:"How has New America's focus changed since it began?"},
+{t:"i",g:"operations",q:"What does a National Fellow at New America actually do for a year?"},
+{t:"i",g:"operations",q:"Where should a newcomer start reading New America's work?"},
+{t:"i",g:"influence",q:"Which New America reports do Wikipedia articles cite most?"},
+{t:"i",g:"influence",q:"Which New America research do academic papers cite most?"},
+{t:"i",g:"people",q:"Who at the Political Reform program should a reporter call about multiparty politics and proportional representation?"},
+{t:"i",g:"people",q:"Who at New America should I talk to about Wagner Group and Future of Proxy Warfare?"},
+{t:"i",g:"funding",q:"How has New America's disclosed funding changed since it began publishing its funders in 2018?"},
+{t:"i",g:"funding",q:"Which reports did the Bill & Melinda Gates Foundation help pay for at New America?"}
+];
+var STARTER_KEY="na.starters";
+// Five chips per load, a pure function of the visit counter n (no random numbers, so tests replay it). Normal load: 3 research questions from 3 areas plus 2 institution questions from 2 categories; with fewer than 3 live categories: 4 research plus 1.
+function startersPick(pool,n){
+  var live=pool.filter(function(s){return s.live!==false});
+  function groups(t){var o=[];live.forEach(function(s){if(s.t===t&&o.indexOf(s.g)<0)o.push(s.g)});return o}
+  function ask(t,g,i){var m=live.filter(function(s){return s.t===t&&s.g===g});return m[i%m.length].q}
+  var ga=groups("r"),gc=groups("i");
+  var ni=gc.length>=3?2:Math.min(gc.length,1),nr=Math.min(5-ni,ga.length),out=[],j;
+  for(j=0;j<nr;j++)out.push(ask("r",ga[(n*nr+j)%ga.length],Math.floor(n/ga.length)));
+  for(j=0;j<ni;j++)out.push(ask("i",gc[(n*ni+j)%gc.length],Math.floor(n/gc.length)));
+  return out;
+}
+// The visit counter: read, advance and keep in localStorage; a blocked or garbled store means set 0.
+function startersVisit(){try{var n=parseInt(ls(STARTER_KEY),10);if(!(n>=0))n=0;ls(STARTER_KEY,String(n+1));return n}catch(e){return 0}}
+//#starters-end
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
   w.appendChild(el("p","meta","Ask about New America's work in plain words to receive a tailored answer with sources. Type help to see what I can do."));
-  w.appendChild(chips(STARTERS));$("out").appendChild(w);
+  w.appendChild(chips(startersPick(STARTERS,startersVisit())));$("out").appendChild(w);
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
 function grow(){var q=$("q");if(AUTO){q.style.height="";return}q.style.height="auto";q.style.height=Math.min(q.scrollHeight,112)+"px"}
@@ -544,38 +582,79 @@ function renderWhoCites(d,out){
   citeFooter(card,d);
   out.appendChild(card);
 }
+// The News block of the citation report (server: NewsSchema, src/mcp/tools/citations.ts), parsed before it is rendered: absent is fine, a malformed block throws instead of drawing an empty section.
+function parseNews(n){
+  if(n==null)return null;
+  var ok=typeof n==="object"&&typeof n.summary==="string"&&n.summary&&Array.isArray(n.items)&&n.items.every(function(i){return i&&typeof i==="object"&&typeof i.title==="string"&&typeof i.url==="string"&&(i.outlet==null||typeof i.outlet==="string")&&(i.date==null||typeof i.date==="string")&&(i.featured==null||typeof i.featured==="string")});
+  if(!ok)throw new Error("The news section of the report came back in an unexpected shape.");
+  return n;
+}
+// The Federal Register block of the citation report (server: FederalRegisterSchema, src/mcp/tools/citations.ts): absent is fine (an older card), a malformed block throws instead of drawing a wrong list.
+function parseFederal(f){
+  if(f==null)return null;
+  var ok=typeof f==="object"&&typeof f.total==="number"&&Array.isArray(f.items)&&f.items.every(function(i){return i&&typeof i==="object"&&typeof i.title==="string"&&typeof i.url==="string"&&typeof i.type==="string"&&Array.isArray(i.agencies)&&(i.year==null||typeof i.year==="string")&&(i.document==null||(typeof i.document==="object"&&typeof i.document.title==="string"&&typeof i.document.url==="string"))});
+  if(!ok)throw new Error("The Federal Register section of the report came back in an unexpected shape.");
+  return f;
+}
 function renderCitationReport(d,out){
-  var card=el("article","card fd"),docs=d.documents||[];
+  var card=el("article","card fd"),docs=d.documents||[],news=parseNews(d.news),fed=parseFederal(d.federalRegister);
   card.appendChild(el("h3",null,"Who cites New America"+(d.since?" since "+d.since:"")));
   if(d.note)card.appendChild(el("p","meta",d.note));
-  var tl={};(d.totals||[]).forEach(function(t){tl[t.source]=t});
-  var chips=function(ids){var r=el("div","fund-row");ids.forEach(function(s){var t=tl[s]||{};r.appendChild(el("span","tl-chip",(t.label||s)+" "+(t.rows||0)))});return r};
-  var tally=function(g){return g.rows+(g.rows===1?" mention":" mentions")+", "+g.matched+" matched to a document"};
-  // One section per kind (news, books, scholarly, government, social, web, site); government splits into Congress, State legislatures and Federal agencies.
-  (d.kinds||[]).forEach(function(k){
-    var sec=el("section","cite-kind");sec.appendChild(el("h4",null,k.label+" \u00b7 "+tally(k)));
-    if((k.groups||[]).length)k.groups.forEach(function(g){sec.appendChild(el("h5",null,g.label+" \u00b7 "+tally(g)));sec.appendChild(chips(g.sources||[]))});
-    else sec.appendChild(chips(k.sources||[]));
-    card.appendChild(sec);
-  });
+  var times=function(n){return n===1?"once":n+" times"};
+  // News first: the server's one sentence, then the newest stories (outlet, linked headline, date, featured person or program).
+  if(news){
+    var sec=el("section","cite-kind");sec.appendChild(el("h4",null,"In the news"));sec.appendChild(el("p",null,news.summary));
+    var nl=el("ul","fd-pubs");
+    news.items.forEach(function(it){
+      var li=el("li"),t=el("div","st");
+      if(it.outlet)t.appendChild(el("strong",null,it.outlet+": "));
+      t.appendChild(link(it.title,it.url));li.appendChild(t);
+      var meta=[it.date?String(it.date).slice(0,10):"",it.featured?"Featuring "+it.featured:""].filter(Boolean).join(" · ");
+      if(meta)li.appendChild(el("div","meta",meta));
+      nl.appendChild(li);
+    });
+    sec.appendChild(nl);card.appendChild(sec);
+  }
   card.appendChild(el("h4",null,"Most-cited documents"));
   if(docs.length){
     var ol=el("ol","fd-rank");
     docs.forEach(function(x){
       var li=el("li");li.appendChild(link(x.title||"(untitled)",x.url));
-      li.appendChild(el("span","meta"," \u00b7 "+x.total+(x.total===1?" citation":" citations")));
-      var r=el("div","fund-row");Object.keys(x.bySource||{}).forEach(function(k){r.appendChild(el("span","tl-chip",((tl[k]||{}).label||k)+" "+x.bySource[k]))});li.appendChild(r);
+      var by=Object.keys(x.bySource||{}).map(function(k){return citeLabel(d,k)}).join(", ");
+      li.appendChild(el("span","meta"," · cited "+times(x.total)+(by?", by "+by:"")));
       ol.appendChild(li);
     });
     card.appendChild(ol);
   }else card.appendChild(el("p","meta","No citation is matched to a listed document yet."));
+  // Other places New America is cited: one sentence per source that has a mention; none for a zero, and In the News has its own section.
+  var rest=(d.totals||[]).filter(function(t){return t.rows>0&&!(t.source==="in_the_news"&&news)});
+  if(rest.length){
+    card.appendChild(el("h4",null,"Elsewhere"));
+    var eu=el("ul");rest.forEach(function(t){eu.appendChild(el("li",null,t.label+" cites New America's work "+times(t.rows)+"."))});card.appendChild(eu);
+  }
+  // A card without state (an older one) counts as checked: nothing is listed as not checked.
+  var unchecked=(d.totals||[]).filter(function(t){return t.state==="not_checked"});
+  if(unchecked.length)card.appendChild(el("p","meta","Not checked yet: "+unchecked.map(function(t){return t.label}).join(", ")+"."));
+  if(fed){
+    card.appendChild(el("h4",null,"Federal Register documents"));
+    var fl=el("ul");
+    fed.items.forEach(function(it){
+      var li=el("li");li.appendChild(link(it.title,it.url));
+      var fm=[it.type,it.agencies.join(", "),it.year||""].filter(Boolean).join(" · ");
+      if(fm)li.appendChild(el("span","meta"," · "+fm));
+      if(it.document){var cd=el("div","meta","Cites ");cd.appendChild(link(it.document.title,it.document.url));li.appendChild(cd)}
+      fl.appendChild(li);
+    });
+    card.appendChild(fl);
+    if(fed.total>fed.items.length)card.appendChild(el("p","meta","and "+(fed.total-fed.items.length)+" more."));
+  }
   if((d.wikipediaPages||[]).length){
     card.appendChild(el("h4",null,"Wikipedia articles citing New America"));
-    var wu=el("ul");d.wikipediaPages.forEach(function(p){var li=el("li");li.appendChild(link(p.title,p.url));li.appendChild(el("span","meta"," \u00b7 "+p.count+(p.count===1?" link":" links")));wu.appendChild(li)});card.appendChild(wu);
+    var wu=el("ul");d.wikipediaPages.forEach(function(p){var li=el("li");li.appendChild(link(p.title,p.url));li.appendChild(el("span","meta"," · "+p.count+(p.count===1?" link":" links")));wu.appendChild(li)});card.appendChild(wu);
   }
   if((d.scholarly||[]).length){
     card.appendChild(el("h4",null,"Scholarly works (OpenAlex)"));
-    var su=el("ul");d.scholarly.forEach(function(w){var li=el("li");li.appendChild(link(w.title||"(untitled)",w.url));li.appendChild(el("span","meta"," \u00b7 "+[w.venue,w.date?String(w.date).slice(0,10):"","cited by "+(w.cited_by_count||0)].filter(Boolean).join(" \u00b7 ")));su.appendChild(li)});card.appendChild(su);
+    var su=el("ul");d.scholarly.forEach(function(w){var li=el("li");li.appendChild(link(w.title||"(untitled)",w.url));li.appendChild(el("span","meta"," · "+[w.venue,w.date?String(w.date).slice(0,10):"","cited by "+(w.cited_by_count||0)].filter(Boolean).join(" · ")));su.appendChild(li)});card.appendChild(su);
   }
   citeFooter(card,d);
   out.appendChild(card);
@@ -613,6 +692,7 @@ function renderEvents(d,out){
     if(e.format)h.appendChild(el("span","tl-chip ev-fmt",e.format==="in-person"?"In person":e.format.charAt(0).toUpperCase()+e.format.slice(1)));
     li.appendChild(h);
     li.appendChild(el("div","meta",[evWhen(e.event_start),e.program].filter(Boolean).join(" · ")));
+    if(e.abstract)li.appendChild(el("p","ev-abs",e.abstract));
     if(safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link("Register",e.registrationUrl));li.appendChild(r)}
     ol.appendChild(li);
   });
