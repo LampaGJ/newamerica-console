@@ -239,7 +239,8 @@ function bylineRow(people){
 }
 // Topic and issue chips as soft pills: linked ones go to their newamerica.org page; at most TAG_MAX, then "+n".
 function chipList(o){
-  var names=tagItems(o&&o.tags,o&&o.program);if(!names.length)return null;
+  // the content type already shows as the card's format tag, so it is not repeated as a chip
+  var names=tagItems(o&&o.tags,o&&o.program).filter(function(n){return n.name!==(o&&o.label)});if(!names.length)return null;
   var ul=el('ul','topics');
   names.slice(0,TAG_MAX).forEach(function(n){var li=el('li'),c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);li.appendChild(c);ul.appendChild(li)});
   if(names.length>TAG_MAX){var m=el('li');m.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)));ul.appendChild(m)}
