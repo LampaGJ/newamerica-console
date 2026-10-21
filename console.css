@@ -260,3 +260,5 @@ html{scroll-behavior:auto}
 .player-frame{display:block;width:100%;max-width:40rem;aspect-ratio:16/9;border:0;border-radius:.4rem;background:#000}
 .yt-link{display:inline-block;margin-top:.3rem;font-size:.8rem}
 .tag-pop{font-size:.75rem;color:var(--mut)}
+/* the player sits above the card-wide title link overlay, so Play starts the embed instead of opening YouTube */
+.player{position:relative;z-index:1}
