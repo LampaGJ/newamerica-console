@@ -768,6 +768,12 @@ function ratingPill(card,ctx){
   down.onclick=function(){rate(down,"down")};
   card.appendChild(pill);
 }
+// The chart is an addendum after the written answer, placed before the rating pill so the pill stays last.
+function addChart(d,card){
+  if(!d||d.chart===undefined||d.chart===null||!card||!window.NAChart)return;
+  var f=window.NAChart.render(d.chart);
+  card.insertBefore(f,card.querySelector(".rate"));
+}
 async function run(){
   var q=$("q").value.trim();if(!q)return;
   if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
@@ -804,6 +810,7 @@ async function run(){
       siteBlocks(d,card);
       ratingPill(card,{request:q,text:String(d.answer||"")});
     }
+    addChart(d,out.lastChild);
     histAdd(q,d.answer?String(d.answer):String(r.text||""),d.citations);newChatShown();
     settle(t,"done");
   }catch(e){

@@ -1,5 +1,8 @@
 :root{--bg:#fff;--fg:#1a1d21;--mut:#5a6270;--line:#d9dde3;--card:#f6f7f9;--acc:#0b5cad;--warn:#8a3b00;--warnbg:#fff1e4;--err:#a1111f;--errbg:#fdeaec}
 @media (prefers-color-scheme:dark){:root{--bg:#14171b;--fg:#e8eaed;--mut:#a0a8b4;--line:#2d333b;--card:#1c2025;--acc:#6db3f5;--warn:#ffb77a;--warnbg:#33240f;--err:#ff8f9a;--errbg:#3a1519}}
+/* Chart tokens: series colours reuse the console palette first (--acc, --warn, --mut); chart-theme.js reads only these names. */
+:root{--chart-1:var(--acc);--chart-2:var(--warn);--chart-3:#2e7d5b;--chart-4:#7a4aa3;--chart-5:var(--mut);--chart-6:#9a6b00;--chart-text:var(--fg);--chart-muted:var(--mut);--chart-grid:var(--line)}
+@media (prefers-color-scheme:dark){:root{--chart-3:#6fcf9f;--chart-4:#c29af0;--chart-6:#e0b84a}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
@@ -177,3 +180,15 @@ html{scroll-behavior:auto}
 .xp-outline{margin:.2rem 0 .5rem;padding-left:1.2rem}.xp-outline li{margin:.1rem 0}
 .xp-key{margin:.45rem 0}
 .sim{font-size:.75rem;color:var(--mut)}
+
+.chart{margin:1.2rem 0 .4rem;padding-top:.8rem;border-top:1px solid var(--line)}
+.chart-title{font-weight:600;margin:0 0 .4rem}
+.chart-plot{min-height:2rem}.chart-plot svg{display:block}
+.chart-legend{display:flex;flex-wrap:wrap;gap:.2rem 1rem;list-style:none;margin:.3rem 0;padding:0;font-size:.85rem}
+.chart-sw{display:inline-block;width:.8rem;height:.8rem;border-radius:2px;vertical-align:-1px}
+.chart-numbers{margin:.5rem 0;padding:.3rem .6rem}
+.chart-tbl{border-collapse:collapse;width:100%;font-size:.85rem;font-variant-numeric:tabular-nums}
+.chart-tbl caption{text-align:left;color:var(--mut);padding:.3rem 0}
+.chart-tbl th,.chart-tbl td{border-top:1px solid var(--line);padding:.2rem .5rem;text-align:right}
+.chart-tbl th[scope=row]{text-align:left;font-weight:400}
+.chart-src{margin:.3rem 0 0}
