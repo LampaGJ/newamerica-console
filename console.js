@@ -557,7 +557,8 @@ function renderFunders(d,out){
   out.appendChild(card);
 }
 // Source labels and the footer come from the card (the server's source registry, src/citations/sources.ts); the page keeps no copy.
-function citeLabel(d,s){return (d.labels&&d.labels[s])||s}
+// who_cites sends labels; citation_report carries each label on its totals row
+function citeLabel(d,s){var t=(d.totals||[]).find(function(x){return x.source===s});return (d.labels&&d.labels[s])||(t&&t.label)||s}
 function citeFooter(card,d){if(!d.footer)return;card.appendChild(el("p","meta fd-credit",d.footer.checked));card.appendChild(el("p","meta fd-credit",d.footer.notCovered))}
 function renderWhoCites(d,out){
   var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
