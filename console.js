@@ -154,9 +154,9 @@ function gate(){
   var open=openUntil!==null&&openUntil!==undefined&&Date.parse(openUntil)>Date.now();
   locked=!open&&!token()&&openUntil!==undefined;
   var pv=$('preview'),d=untilLabel(openUntil)||'Oct 31, 2026';
-  pv.hidden=!open&&!locked;
-  if(open)pv.textContent='Time-limited demonstration through '+d+'.';
-  else if(locked)pv.textContent='This time-limited demonstration ended on '+d+'.';
+  // while open, the welcome subhead carries the demo dates; the note above the input only says when it has ended
+  pv.hidden=!locked;
+  if(locked)pv.textContent='This time-limited demonstration ended on '+d+'.';
   var st=$('stats'),line=statsLine(counts);st.hidden=!line;st.textContent=line;
   var q=$('q'),g=$('go');q.disabled=locked||!!offline;g.disabled=locked||!!offline||!!busy;
   $('ask').querySelector('.box').classList.toggle('off',locked||!!offline);
@@ -417,7 +417,7 @@ function startersVisit(){try{var n=parseInt(ls(STARTER_KEY),10);if(!(n>=0))n=0;l
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
-  w.appendChild(el("p","meta","Ask about New America's work in plain words to receive a tailored answer with sources. Type help to see what I can do."));
+  w.appendChild(el("p","meta","Ask about New America and its work using plain words in this time-limited demo running through "+(untilLabel(openUntil)||"Oct 31, 2026")+". Type help to see what I can do."));
   w.appendChild(chips(startersPick(STARTERS,startersVisit())));$("out").appendChild(w);
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
@@ -720,7 +720,13 @@ function histAdd(q,text,cites){
 function histClear(){try{localStorage.removeItem(HIST_KEY)}catch(e){}}
 function answerArgs(q){var h=histLoad();return h.length?{request:q,history:h}:{request:q}}
 //#history-end
-function newChatShown(){var b=$("newchat");if(b)b.hidden=histLoad().length===0}
+// "New conversation" sits at the end of the transcript, only once a chat exists; it is moved there after each answer
+function newChatShown(){
+  var b=$("newchat");
+  if(!b){b=el("button","newchat","New conversation");b.id="newchat";b.type="button";b.onclick=newChat}
+  var row=b.parentNode||el("p","newchat-row");if(!b.parentNode)row.appendChild(b);
+  b.hidden=histLoad().length===0;row.hidden=b.hidden;$("out").appendChild(row);
+}
 function canHash(){return !!(window.crypto&&crypto.subtle&&window.TextEncoder)}
 async function sha256Hex(text){
   var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
@@ -811,7 +817,7 @@ async function run(){
   finally{clearInterval(tick);busy=null;$("go").disabled=!!offline;$("ask").querySelector(".box").classList.remove("busy");document.body.classList.remove("pending")}
 }
 $("ask").onsubmit=function(ev){ev.preventDefault();run()};
-$("newchat").onclick=function(){if(busy)return;histClear();newChatShown();$("out").textContent="";welcome();$("q").focus()};
+function newChat(){if(busy)return;histClear();$("out").textContent="";welcome();newChatShown();$("q").focus()}
 $("q").oninput=grow;
 $("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
 (function(){var f=document.querySelector(".composer"),r=document.documentElement;function m(){r.style.setProperty("--composer-h",f.offsetHeight+"px")}m();if(window.ResizeObserver)new ResizeObserver(m).observe(f);else window.addEventListener("resize",m)})();
