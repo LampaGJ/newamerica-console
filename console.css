@@ -252,3 +252,11 @@ html{scroll-behavior:auto}
   .src-foot .acts button{flex:1;justify-content:center}
 }
 @media (forced-colors:active){.src-meta .idx{border:1px solid CanvasText}.src-foot .acts button.primary{border-color:ButtonText}}
+/* Embedded player (issue #148): the Play button swaps itself for a responsive 16:9 iframe; "Watch on YouTube" stays beside it. */
+.player{margin:.5rem 0}
+.player-slot{margin:0}
+.play-btn{font:inherit;font-size:.85rem;padding:.3rem .8rem;border:1px solid var(--line);border-radius:999px;background:transparent;color:inherit;cursor:pointer}
+.play-btn:hover,.play-btn:focus-visible{border-color:currentColor}
+.player-frame{display:block;width:100%;max-width:40rem;aspect-ratio:16/9;border:0;border-radius:.4rem;background:#000}
+.yt-link{display:inline-block;margin-top:.3rem;font-size:.8rem}
+.tag-pop{font-size:.75rem;color:var(--mut)}

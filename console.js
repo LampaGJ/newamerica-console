@@ -166,10 +166,14 @@ function renderCorpus(c,out){
   var groups=(c&&c.groups)||[];
   if(c&&c.window&&c.window.oldest){out.appendChild(el('p','meta','Covers '+c.window.oldest+' to '+c.window.newest+'.'))}
   if(!groups.length){out.appendChild(el('p',null,'No documents matched. Try different wording.'));return}
+  // Up to two videos that directly cover the question lead the listing (a ranking rule; their tier is unchanged).
+  var lead=[];groups.forEach(function(g){(g.items||[]).forEach(function(it){if(it&&it.direct===true&&lead.length<2)lead.push(it)})});
+  if(lead.length){out.appendChild(el('h2',null,'Videos that cover your question ('+lead.length+')'));lead.forEach(function(it){out.appendChild(item(it))})}
   groups.slice().sort(function(a,b){return a.tier-b.tier}).forEach(function(g){
-    if(!g.items||!g.items.length)return;
-    out.appendChild(el('h2',null,(TIERS[g.tier]||'Other')+' ('+g.items.length+')'));
-    g.items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
+    var items=(g.items||[]).filter(function(it){return lead.indexOf(it)<0});
+    if(!items.length)return;
+    out.appendChild(el('h2',null,(TIERS[g.tier]||'Other')+' ('+items.length+')'));
+    items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
   });
 }
 //#rows-start
@@ -246,6 +250,36 @@ function chipList(o){
   if(names.length>TAG_MAX){var m=el('li');m.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)));ul.appendChild(m)}
   return ul;
 }
+// Embedded player (issue #148): a video card or an event recording gets a Play button that swaps itself for the iframe on click; nothing is embedded on render.
+// The id and start come from the server (Zod, src/mcp/player.ts) and are shape-checked again here before any url is built.
+var VIDEO_ID=/^[A-Za-z0-9_-]{11}$/;
+// {id,start} or null: a hit carries youtubeId (videoId is its numeric citation key), a citation or recording carries videoId as the 11-character id; start is a whole number of seconds, 0 or more, and absent means 0.
+function videoRef(o){
+  if(!o||typeof o!=='object')return null;
+  var id=typeof o.youtubeId==='string'?o.youtubeId:(typeof o.videoId==='string'?o.videoId:'');
+  if(!VIDEO_ID.test(id))return null;
+  var s=o.start==null?0:o.start;
+  if(typeof s!=='number'||!isFinite(s)||Math.floor(s)!==s||s<0)return null;
+  return {id:id,start:s};
+}
+function embedSrc(ref){return 'https://www.youtube-nocookie.com/embed/'+ref.id+'?start='+ref.start+'&autoplay=1&rel=0'}
+function watchHref(ref){return 'https://www.youtube.com/watch?v='+ref.id+(ref.start>0?'&t='+ref.start+'s':'')}
+function clockLabel(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return (h?h+':'+(m<10?'0':''):'')+m+':'+(r<10?'0':'')+r}
+// The Play button (its text "Play from m:ss", or "Play" with no start) and the plain "Watch on YouTube" link; the button replaces itself with the iframe.
+function playBox(ref,title){
+  var box=el('div','player'),slot=el('div','player-slot'),label=ref.start>0?'Play from '+clockLabel(ref.start):'Play',btn=el('button','play-btn',label);
+  btn.type='button';
+  btn.setAttribute('aria-label',label+': '+title);
+  btn.onclick=function(){
+    var f=el('iframe','player-frame');
+    f.setAttribute('src',embedSrc(ref));f.setAttribute('title',title+' (recording)');f.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
+    f.setAttribute('allowfullscreen','');f.setAttribute('loading','lazy');
+    slot.textContent='';slot.appendChild(f);
+  };
+  slot.appendChild(btn);box.appendChild(slot);
+  var w=el('a','yt-link','Watch on YouTube');w.href=watchHref(ref);w.target='_blank';w.rel='noopener noreferrer';box.appendChild(w);
+  return box;
+}
 // One source as a card: meta row (index, program, format, date), title, summary and excerpt, chips, byline and actions.
 // Returns {root,card,acts,slot}: root holds the card and, under it, slot for Read/Cite output; the caller wires acts with wireActs. n is the citation number (null for an unnumbered row); tag is the root element (li in a list).
 function srcItem(o,n,tag){
@@ -256,6 +290,7 @@ function srcItem(o,n,tag){
   if(o.program&&!social&&!video){var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='program';else{var ps=el('span','program');ps.appendChild(p);p=ps}meta.appendChild(p)}
   var fmt=social?'Social post':video?(o.label||'Video'):(o.label||'');
   if(fmt)meta.appendChild(el('span','format',fmt));
+  if(video&&o.popular===true)meta.appendChild(el('span','tag-pop','Popular'));
   var pu=safeUrl(o.pdfUrl);
   if(pu){var pa=el('a','pdf-pill','PDF');pa.href=pu;pa.target='_blank';pa.rel='noopener';pa.setAttribute('aria-label','Open PDF of '+(o.title||'this source')+' (new tab)');meta.appendChild(pa)}
   if(o.chapters>0)meta.appendChild(el('span','chap-note',o.chapters+(o.chapters===1?' chapter':' chapters')));
@@ -269,6 +304,7 @@ function srcItem(o,n,tag){
   var dek=typeof o.blurb==='string'&&o.blurb.trim()?o.blurb.trim():(typeof o.abstract==='string'&&o.abstract.trim()?o.abstract.trim():'');
   if(dek)card.appendChild(el('p','dek',dek));
   if(o.funders&&o.funders.length){var fr=el('div','fund-row');fr.appendChild(el('span','fund-lab','Funded by'));o.funders.forEach(function(f){fr.appendChild(el('span','tl-chip',f))});card.appendChild(fr)}
+  var ref=video?videoRef(o):null;if(ref)card.appendChild(playBox(ref,o.title||'this video'));
   var chips=chipList(o);if(chips)card.appendChild(chips);
   var by=bylineRow(srcPeople(o)),acts=actsRow(o);
   if(by||acts){var foot=el('div','src-foot');if(by)foot.appendChild(by);if(acts)foot.appendChild(acts.box);card.appendChild(foot)}
@@ -689,6 +725,8 @@ function renderEvents(d,out){
     li.appendChild(h);
     li.appendChild(el("div","meta",[evWhen(e.event_start),e.program].filter(Boolean).join(" · ")));
     if(e.abstract)li.appendChild(el("p","ev-abs",e.abstract));
+    var rec=e.recording&&typeof e.recording==='object'?e.recording:null,rr=rec?videoRef({videoId:rec.videoId,start:rec.start}):null;
+    if(rr)li.appendChild(playBox(rr,String(rec.title||e.title||'this event')));
     if(safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link("Register",e.registrationUrl));li.appendChild(r)}
     ol.appendChild(li);
   });
