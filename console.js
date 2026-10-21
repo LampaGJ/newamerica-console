@@ -380,8 +380,8 @@ var STARTERS=[
 {t:"i",g:"history",q:"How has New America's focus changed since it began?"},
 {t:"i",g:"operations",q:"What does a National Fellow at New America actually do for a year?"},
 {t:"i",g:"operations",q:"Where should a newcomer start reading New America's work?"},
-{t:"i",g:"influence",q:"Which New America reports do Wikipedia articles cite most?"},
-{t:"i",g:"influence",q:"Which New America research do academic papers cite most?"},
+{t:"i",g:"influence",q:"Which New America reports has Congress cited?"},
+{t:"i",g:"influence",q:"Who has covered New America in the news?"},
 {t:"i",g:"people",q:"Who at the Political Reform program should a reporter call about multiparty politics and proportional representation?"},
 {t:"i",g:"people",q:"Who at New America should I talk to about Wagner Group and Future of Proxy Warfare?"},
 {t:"i",g:"funding",q:"How has New America's disclosed funding changed since it began publishing its funders in 2018?"},
@@ -562,7 +562,7 @@ function citeFooter(card,d){if(!d.footer)return;card.appendChild(el("p","meta fd
 function renderWhoCites(d,out){
   var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
   var h=el("h3",null,"Who cites ");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
-  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(d.live?" after a live refresh":"")+(TIERS[doc.tier]?" \u00b7 "+TIERS[doc.tier]:"")));
+  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(TIERS[doc.tier]?" \u00b7 "+TIERS[doc.tier]:"")));
   var row=el("div","fund-row");
   srcs.forEach(function(s){row.appendChild(el("span","tl-chip",citeLabel(d,s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
   card.appendChild(row);
@@ -589,15 +589,8 @@ function parseNews(n){
   if(!ok)throw new Error("The news section of the report came back in an unexpected shape.");
   return n;
 }
-// The Federal Register block of the citation report (server: FederalRegisterSchema, src/mcp/tools/citations.ts): absent is fine (an older card), a malformed block throws instead of drawing a wrong list.
-function parseFederal(f){
-  if(f==null)return null;
-  var ok=typeof f==="object"&&typeof f.total==="number"&&Array.isArray(f.items)&&f.items.every(function(i){return i&&typeof i==="object"&&typeof i.title==="string"&&typeof i.url==="string"&&typeof i.type==="string"&&Array.isArray(i.agencies)&&(i.year==null||typeof i.year==="string")&&(i.document==null||(typeof i.document==="object"&&typeof i.document.title==="string"&&typeof i.document.url==="string"))});
-  if(!ok)throw new Error("The Federal Register section of the report came back in an unexpected shape.");
-  return f;
-}
 function renderCitationReport(d,out){
-  var card=el("article","card fd"),docs=d.documents||[],news=parseNews(d.news),fed=parseFederal(d.federalRegister);
+  var card=el("article","card fd"),docs=d.documents||[],news=parseNews(d.news);
   card.appendChild(el("h3",null,"Who cites New America"+(d.since?" since "+d.since:"")));
   if(d.note)card.appendChild(el("p","meta",d.note));
   var times=function(n){return n===1?"once":n+" times"};
@@ -635,27 +628,6 @@ function renderCitationReport(d,out){
   // A card without state (an older one) counts as checked: nothing is listed as not checked.
   var unchecked=(d.totals||[]).filter(function(t){return t.state==="not_checked"});
   if(unchecked.length)card.appendChild(el("p","meta","Not checked yet: "+unchecked.map(function(t){return t.label}).join(", ")+"."));
-  if(fed){
-    card.appendChild(el("h4",null,"Federal Register documents"));
-    var fl=el("ul");
-    fed.items.forEach(function(it){
-      var li=el("li");li.appendChild(link(it.title,it.url));
-      var fm=[it.type,it.agencies.join(", "),it.year||""].filter(Boolean).join(" · ");
-      if(fm)li.appendChild(el("span","meta"," · "+fm));
-      if(it.document){var cd=el("div","meta","Cites ");cd.appendChild(link(it.document.title,it.document.url));li.appendChild(cd)}
-      fl.appendChild(li);
-    });
-    card.appendChild(fl);
-    if(fed.total>fed.items.length)card.appendChild(el("p","meta","and "+(fed.total-fed.items.length)+" more."));
-  }
-  if((d.wikipediaPages||[]).length){
-    card.appendChild(el("h4",null,"Wikipedia articles citing New America"));
-    var wu=el("ul");d.wikipediaPages.forEach(function(p){var li=el("li");li.appendChild(link(p.title,p.url));li.appendChild(el("span","meta"," · "+p.count+(p.count===1?" link":" links")));wu.appendChild(li)});card.appendChild(wu);
-  }
-  if((d.scholarly||[]).length){
-    card.appendChild(el("h4",null,"Scholarly works (OpenAlex)"));
-    var su=el("ul");d.scholarly.forEach(function(w){var li=el("li");li.appendChild(link(w.title||"(untitled)",w.url));li.appendChild(el("span","meta"," · "+[w.venue,w.date?String(w.date).slice(0,10):"","cited by "+(w.cited_by_count||0)].filter(Boolean).join(" · ")));su.appendChild(li)});card.appendChild(su);
-  }
   citeFooter(card,d);
   out.appendChild(card);
 }
