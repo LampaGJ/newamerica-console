@@ -182,21 +182,24 @@ function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>
 function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?(n>=50?'50+':Math.floor(n))+' more like this':''}
 var TAG_KEYS=['types','programs','topics','issues','projects'],TAG_MAX=6;
 // Every taxonomy name on a row, known taxonomies first, then any other key; the row's own program and repeats dropped.
-function tagNames(t,skip){
+// Topic and issue tags link to their newamerica.org index page (the server's TERM_LANDING pattern, src/mcp/related-on-site.ts); other tags have none.
+var TAG_LANDING={topics:'https://www.newamerica.org/topics/',issues:'https://www.newamerica.org/issues/'};
+function tagNames(t,skip){return tagItems(t,skip).map(function(x){return x.name})}
+function tagItems(t,skip){
   var seen={},out=[];t=t&&typeof t==='object'?t:{};
   Object.keys(t).sort(function(a,b){var i=TAG_KEYS.indexOf(a),j=TAG_KEYS.indexOf(b);return (i<0?99:i)-(j<0?99:j)||(a<b?-1:a>b?1:0)}).forEach(function(k){
-    (Array.isArray(t[k])?t[k]:[]).forEach(function(v){var s=String(typeof v==='string'?v:(v&&(v.name||v.title))||'').trim();if(s&&s!==skip&&!seen[s]){seen[s]=1;out.push(s)}});
+    (Array.isArray(t[k])?t[k]:[]).forEach(function(v){var s=String(typeof v==='string'?v:(v&&(v.name||v.title))||'').trim();var slug=v&&typeof v.slug==='string'&&/^[a-z0-9-]+$/.test(v.slug)?v.slug:'';if(s&&s!==skip&&!seen[s]){seen[s]=1;out.push({name:s,href:TAG_LANDING[k]&&slug?TAG_LANDING[k]+slug+'/':''})}});
   });
   return out;
 }
 // Muted second line under a source title: "<Program> · <tag> · <tag> … +n"; the program links to its landing page when known.
 function progRow(o){
   if(!o)return null;
-  var names=tagNames(o.tags,o.program),r=el('div','prog-row'),first=true;
+  var names=tagItems(o.tags,o.program),r=el('div','prog-row'),first=true;
   if(!o.program&&!names.length)return null;
   function sep(){if(!first){var s=el('span','sep',' \u00b7 ');s.setAttribute('aria-hidden','true');r.appendChild(s)}first=false}
   if(o.program){sep();var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='prog';else{var sp=el('span','prog');sp.appendChild(p);p=sp}r.appendChild(p)}
-  names.slice(0,TAG_MAX).forEach(function(n){sep();r.appendChild(el('span','tag-chip',n))});
+  names.slice(0,TAG_MAX).forEach(function(n){sep();var c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);r.appendChild(c)});
   if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
   return r;
 }
