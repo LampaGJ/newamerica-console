@@ -203,9 +203,9 @@ function progRow(o){
   if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
   return r;
 }
-// Read / Cite and, when related_count > 0, "n more like this" for a numbered document row; null for social posts and rows without an id.
+// Read / Cite and, when related_count > 0, "n more like this" for a numbered document row; null for social posts, videos and rows without an id.
 function actsRow(o){
-  if(!o||!numId(o.id)||o.kind==='social')return null;
+  if(!o||!numId(o.id)||o.kind==='social'||o.kind==='video')return null;
   var box=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
   rb.type=cb.type='button';box.appendChild(rb);box.appendChild(cb);
   if(lab){mb=el('button','more-like',lab);mb.type='button';box.appendChild(mb)}
@@ -224,6 +224,12 @@ function item(it){
     var sb=socialBy(it);if(sb)d.appendChild(el('div','authors','By '+sb));
     blurbs(d,it);
     if(it.abstract)d.appendChild(el('p','abs',it.abstract));
+    return d;
+  }
+  if(it.kind==='video'){
+    d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+' · '+(it.label||'Video')));
+    var vh=el('h3');vh.appendChild(link(it.title||'(untitled)',it.url));d.appendChild(vh);
+    blurbs(d,it);
     return d;
   }
   d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')));
@@ -465,7 +471,7 @@ function renderAnswer(d,q,out){
     d.citations.forEach(function(c){
       var li=el("li");li.id="src-"+c.n;li.value=c.n;
       var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
-      var soc=c.kind==="social",cpr=soc?null:progRow(c);if(cpr)li.appendChild(cpr);
+      var soc=c.kind==="social",cpr=(soc||c.kind==="video")?null:progRow(c);if(cpr)li.appendChild(cpr);
       var mt=el("div","meta",[soc?"":c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
       if(soc)mt.insertBefore(el("span","soc-chip","Social post"),mt.firstChild);
       var pu=safeUrl(c.pdfUrl);
