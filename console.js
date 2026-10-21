@@ -785,6 +785,7 @@ async function run(){
     else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="people"){renderPeople(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
     else if(d.kind==="events"){renderEvents(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
+    else if(d.kind==="off_topic"){var oc=el("article","card");oc.appendChild(md(String(d.answer||""),{}));out.appendChild(oc)}
     else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
     else{
       renderAnswer(d,q,out);
