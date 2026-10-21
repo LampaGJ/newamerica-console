@@ -417,7 +417,7 @@ function startersVisit(){try{var n=parseInt(ls(STARTER_KEY),10);if(!(n>=0))n=0;l
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
-  w.appendChild(el("p","meta","Ask about New America and its work using plain words in this time-limited demo running through "+(untilLabel(openUntil)||"Oct 31, 2026")+". Type help to see what I can do."));
+  w.appendChild(el("p","meta","Ask about New America and its work using plain words in this time-limited demo running through "+(untilLabel(openUntil)||"Oct 31, 2026")+"."));
   w.appendChild(chips(startersPick(STARTERS,startersVisit())));$("out").appendChild(w);
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
