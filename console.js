@@ -172,10 +172,6 @@ function renderCorpus(c,out){
     g.items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
   });
 }
-function blurbs(parent,o){
-  if(o&&typeof o.why==="string"&&o.why.trim())parent.appendChild(el("p","why",o.why.trim()));
-  if(o&&typeof o.blurb==="string"&&o.blurb.trim())parent.appendChild(el("p","blurb",o.blurb.trim()));
-}
 //#rows-start
 function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
 // "n more like this" for a positive related_count, '' otherwise (the link is then not rendered); "50+" at the cap (RELATED_CAP, src/mcp/hit.ts:93), where n is a floor not a count.
@@ -206,54 +202,86 @@ function progRow(o){
 // Read / Cite and, when related_count > 0, "n more like this" for a numbered document row; null for social posts, videos and rows without an id.
 function actsRow(o){
   if(!o||!numId(o.id)||o.kind==='social'||o.kind==='video')return null;
-  var box=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
+  var box=el('div','acts'),rb=el('button','primary','Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
   rb.type=cb.type='button';box.appendChild(rb);box.appendChild(cb);
-  if(lab){mb=el('button','more-like',lab);mb.type='button';box.appendChild(mb)}
+  if(lab){mb=el('button','more-like');mb.type='button';var cnt=lab.slice(0,lab.indexOf(' '));mb.appendChild(el('span','count',cnt));mb.appendChild(document.createTextNode(lab.slice(cnt.length)));box.appendChild(mb)}
   return {box:box,rb:rb,cb:cb,mb:mb};
 }
-//#rows-end
-function socialBy(o){
-  var a=typeof o.author==='string'&&o.author.trim()?o.author.trim():(Array.isArray(o.authors)&&o.authors.length?o.authors.map(function(p){return typeof p==='string'?p:(p&&p.name)||''}).filter(Boolean).join(', '):'');
-  return a;
+var MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// "Oct 7, 2026" for an ISO date (or date-time); '' when it is not one.
+function dateLabel(d){var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(d||''));return m&&+m[2]>=1&&+m[2]<=12?MONTHS[+m[2]-1]+' '+(+m[3])+', '+m[1]:''}
+// The people on a source as {name,url,photo}: structured authors first, then plain names, then a social post's single author. Videos carry the channel name only, so they get none.
+function srcPeople(o){
+  if(!o||o.kind==='video')return [];
+  var raw=Array.isArray(o.authorDetails)&&o.authorDetails.length?o.authorDetails:Array.isArray(o.authors)&&o.authors.length?o.authors:(typeof o.author==='string'&&o.author.trim()?[o.author.trim()]:[]);
+  return raw.map(function(p){return typeof p==='string'?{name:p}:p}).filter(function(p){return p&&typeof p.name==='string'&&p.name.trim()});
 }
+function initials(n){var w=String(n).replace(/[^\p{L}\p{N}\s'-]/gu,' ').split(/\s+/).filter(Boolean);return ((w[0]||'').charAt(0)+(w.length>1?w[w.length-1].charAt(0):'')).toUpperCase()}
+// Overlapping round headshots (photo, else initials) then the names: "A & B", "A, B, C & 1 more". Names link when the author has a page.
+var BY_MAX=3;
+function bylineRow(people){
+  if(!people.length)return null;
+  var row=el('div','byline'),av=el('span','avatars'),nm=el('div','names'),shown=people.slice(0,BY_MAX),more=people.length-shown.length;
+  av.setAttribute('aria-hidden','true');
+  shown.forEach(function(p){
+    var pu=safeUrl(p.photo),a;
+    if(pu){a=el('img','avatar');a.src=pu;a.alt='';a.loading='lazy';a.referrerPolicy='no-referrer';a.onerror=function(){a.removeAttribute('src');a.className='avatar ini'}}
+    else a=el('span','avatar ini',initials(p.name));
+    av.appendChild(a);
+  });
+  if(more>0)av.appendChild(el('span','avatar rest','+'+more));
+  shown.forEach(function(p,i){
+    if(i>0)nm.appendChild(document.createTextNode(i===shown.length-1&&more<1?' & ':', '));
+    var l=link(p.name,p.url);if(l.nodeType===1&&p.url)l.className='nm';nm.appendChild(l);
+  });
+  if(more>0)nm.appendChild(document.createTextNode(' & '+more+' more'));
+  row.appendChild(av);row.appendChild(nm);return row;
+}
+// Topic and issue chips as soft pills: linked ones go to their newamerica.org page; at most TAG_MAX, then "+n".
+function chipList(o){
+  var names=tagItems(o&&o.tags,o&&o.program);if(!names.length)return null;
+  var ul=el('ul','topics');
+  names.slice(0,TAG_MAX).forEach(function(n){var li=el('li'),c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);li.appendChild(c);ul.appendChild(li)});
+  if(names.length>TAG_MAX){var m=el('li');m.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)));ul.appendChild(m)}
+  return ul;
+}
+// One source as a card: meta row (index, program, format, date), title, summary and excerpt, chips, byline and actions.
+// Returns {root,card,acts,slot}: root holds the card and, under it, slot for Read/Cite output; the caller wires acts with wireActs. n is the citation number (null for an unnumbered row); tag is the root element (li in a list).
+function srcItem(o,n,tag){
+  var root=el(tag||'div','src-item'),card=el('article','src-card'),social=o.kind==='social',video=o.kind==='video';
+  if(n!=null){root.id='src-'+n;root.value=n}
+  var meta=el('div','src-meta');
+  if(n!=null){var ix=el('span','idx',String(n));ix.setAttribute('aria-label','Source '+n);meta.appendChild(ix)}
+  if(o.program&&!social&&!video){var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='program';else{var ps=el('span','program');ps.appendChild(p);p=ps}meta.appendChild(p)}
+  var fmt=social?'Social post':video?(o.label||'Video'):(o.label||'');
+  if(fmt)meta.appendChild(el('span','format',fmt));
+  var pu=safeUrl(o.pdfUrl);
+  if(pu){var pa=el('a','pdf-pill','PDF');pa.href=pu;pa.target='_blank';pa.rel='noopener';pa.setAttribute('aria-label','Open PDF of '+(o.title||'this source')+' (new tab)');meta.appendChild(pa)}
+  if(o.chapters>0)meta.appendChild(el('span','chap-note',o.chapters+(o.chapters===1?' chapter':' chapters')));
+  if(typeof o.similarity==='number')meta.appendChild(el('span','sim',Math.round(o.similarity*100)+'% similar'));
+  var dl=dateLabel(o.date),tm=el('time','date',dl||'Undated');if(dl)tm.setAttribute('datetime',String(o.date).slice(0,10));meta.appendChild(tm);
+  card.appendChild(meta);
+  var h=el('h3','src-title');h.appendChild(link(o.title||'(untitled)',o.url));
+  if(o.external)h.appendChild(el('span','badge','(coverage)'));
+  card.appendChild(h);
+  if(o.why&&typeof o.why==='string'&&o.why.trim())card.appendChild(el('p','summary',o.why.trim()));
+  var dek=typeof o.blurb==='string'&&o.blurb.trim()?o.blurb.trim():(typeof o.abstract==='string'&&o.abstract.trim()?o.abstract.trim():'');
+  if(dek)card.appendChild(el('p','dek',dek));
+  if(o.funders&&o.funders.length){var fr=el('div','fund-row');fr.appendChild(el('span','fund-lab','Funded by'));o.funders.forEach(function(f){fr.appendChild(el('span','tl-chip',f))});card.appendChild(fr)}
+  var chips=chipList(o);if(chips)card.appendChild(chips);
+  var by=bylineRow(srcPeople(o)),acts=actsRow(o);
+  if(by||acts){var foot=el('div','src-foot');if(by)foot.appendChild(by);if(acts)foot.appendChild(acts.box);card.appendChild(foot)}
+  root.appendChild(card);
+  var slot=el('div','src-slot');if(acts)root.appendChild(slot);
+  return {root:root,card:card,acts:acts,slot:slot};
+}
+// "Sources" label with the count and a rule under it.
+function srcsHead(n){var hd=el('header','sources-head');hd.appendChild(el('h4',null,'Sources'));hd.appendChild(el('span','count',String(n)));return hd}
+//#rows-end
 function item(it){
-  var d=el('article','item');
-  if(it.kind==='social'){
-    d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')));
-    var sh=el('h3');sh.appendChild(link(it.title||'(untitled)',it.url));sh.appendChild(el('span','soc-chip','Social post'));d.appendChild(sh);
-    var sb=socialBy(it);if(sb)d.appendChild(el('div','authors','By '+sb));
-    blurbs(d,it);
-    if(it.abstract)d.appendChild(el('p','abs',it.abstract));
-    return d;
-  }
-  if(it.kind==='video'){
-    d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+' · '+(it.label||'Video')));
-    var vh=el('h3');vh.appendChild(link(it.title||'(untitled)',it.url));d.appendChild(vh);
-    blurbs(d,it);
-    return d;
-  }
-  d.appendChild(el('div','meta',(it.date?String(it.date).slice(0,10):'undated')+(it.label?' · '+it.label:'')));
-  var h=el('h3');h.appendChild(link(it.title||'(untitled)',it.url));
-  if(it.external)h.appendChild(el('span','badge','(coverage)'));
-  d.appendChild(h);
-  var pr=progRow(it);if(pr)d.appendChild(pr);
-  if(it.authors&&it.authors.length){
-    var a=el('div','authors');
-    it.authors.forEach(function(p){
-      var s=el('span','au');
-      if(safeUrl(p.photo)){var im=el('img');im.src=p.photo;im.alt='';im.loading='lazy';im.referrerPolicy='no-referrer';s.appendChild(im)}
-      s.appendChild(document.createTextNode('By '));
-      s.appendChild(link(p.name,p.url));
-      if(p.personType)s.appendChild(document.createTextNode(' ('+p.personType+')'));
-      a.appendChild(s);
-    });d.appendChild(a);
-  }
-  blurbs(d,it);
-  if(it.abstract)d.appendChild(el('p','abs',it.abstract));
-  var a=actsRow(it);if(!a)return d;
-  var slot=el('div');d.appendChild(a.box);d.appendChild(slot);
-  wireActs(it,a,slot);
-  return d;
+  var r=srcItem(it,null,'div');
+  if(r.acts)wireActs(it,r.acts,r.slot);
+  return r.root;
 }
 var REDUCED=function(){return matchMedia("(prefers-reduced-motion: reduce)").matches};
 // Read, Cite and "n more like this" on one source row; slot holds the Read/Cite output under the row.
@@ -288,7 +316,7 @@ function wireActs(it,a,slot){
 async function openExplore(it,btn){
   if(btn._xp&&btn._xp.isConnected&&!btn._xp.classList.contains("xp-err")){btn._xp.scrollIntoView({block:"start",behavior:REDUCED()?"auto":"smooth"});return}
   if(btn._xp){btn._xp.remove();btn._xp=null}
-  var anchor=btn.closest(".card")||btn.closest(".item")||btn.parentNode;
+  var anchor=btn.closest(".card")||btn.closest(".src-item")||btn.closest(".item")||btn.parentNode;
   var card=el("article","card xp");card.setAttribute("aria-busy","true");
   card.appendChild(el("p","meta","Reading \u201c"+(it.title||"this source")+"\u201d and finding sources like it..."));
   anchor.parentNode.insertBefore(card,anchor.nextSibling);btn._xp=card;btn.disabled=true;
@@ -324,16 +352,7 @@ function renderExplore(d,card){
   if(rel.matched_by==="lexical")card.appendChild(el("p","meta fine","Matched by title and lead words"+(rel.fallbackReason?" ("+rel.fallbackReason+")":"")+"."));
   if(!items.length){card.appendChild(el("p","meta",rel.note||"Nothing similar was found."));return}
   var list=el("ol","srcs xp-rel");
-  items.forEach(function(it){
-    var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));li.appendChild(t);
-    var p2=progRow(it);if(p2)li.appendChild(p2);
-    var mt=el("div","meta",[it.date?String(it.date).slice(0,4):"undated",it.label].filter(Boolean).join(" \u00b7 "));
-    if(typeof it.similarity==="number")mt.appendChild(el("span","sim"," \u00b7 "+Math.round(it.similarity*100)+"% similar"));
-    li.appendChild(mt);
-    if(it.blurb)li.appendChild(el("p","blurb",it.blurb));
-    var a=actsRow(it);if(a){var slot=el("div");li.appendChild(a.box);li.appendChild(slot);wireActs(it,a,slot)}
-    list.appendChild(li);
-  });
+  items.forEach(function(it){var r=srcItem(it,null,"li");if(r.acts)wireActs(it,r.acts,r.slot);list.appendChild(r.root)});
   card.appendChild(list);
 }
 
@@ -466,27 +485,9 @@ function renderAnswer(d,q,out){
   var card=el("article","card");
   card.appendChild(md(body,cites));
   if(d.citations&&d.citations.length){
-    card.appendChild(el("h4",null,"Sources"));
+    card.appendChild(srcsHead(d.citations.length));
     var ol=el("ol","srcs");
-    d.citations.forEach(function(c){
-      var li=el("li");li.id="src-"+c.n;li.value=c.n;
-      var h=el("div","st");h.appendChild(link(c.title||"(untitled)",c.url));li.appendChild(h);
-      var soc=c.kind==="social",cpr=(soc||c.kind==="video")?null:progRow(c);if(cpr)li.appendChild(cpr);
-      var mt=el("div","meta",[soc?"":c.label,c.date?String(c.date).slice(0,10):""].filter(Boolean).join(" · "));
-      if(soc)mt.insertBefore(el("span","soc-chip","Social post"),mt.firstChild);
-      var pu=safeUrl(c.pdfUrl);
-      if(pu){var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(c.title||"this source")+" (new tab)");mt.appendChild(document.createTextNode(" "));mt.appendChild(pa)}
-      if(c.chapters>0){mt.appendChild(el("span","chap-note"," "+c.chapters+(c.chapters===1?" chapter":" chapters")))}
-      li.appendChild(mt);
-      if(c.funders&&c.funders.length){var fr=el("div","fund-row");fr.appendChild(el("span","fund-lab","Funded by"));c.funders.forEach(function(f){fr.appendChild(el("span","tl-chip",f))});li.appendChild(fr)}
-      var au=(c.authorDetails||[]);
-      if(au.length){var a=el("div","authors");au.forEach(function(p){var s=el("span","au");if(safeUrl(p.photo)){var im=el("img");im.src=p.photo;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";s.appendChild(im)}s.appendChild(link(p.name,p.url));a.appendChild(s)});li.appendChild(a)}
-      else if(soc){var sb=socialBy(c);if(sb)li.appendChild(el("div","meta","By "+sb))}
-      else if(c.authors&&c.authors.length)li.appendChild(el("div","meta","By "+c.authors.join(", ")));
-      blurbs(li,c);
-      var ca=actsRow(c);if(ca){var cs=el("div");li.appendChild(ca.box);li.appendChild(cs);wireActs(c,ca,cs)}
-      ol.appendChild(li);
-    });card.appendChild(ol);
+    d.citations.forEach(function(c){var r=srcItem(c,c.n,"li");if(r.acts)wireActs(c,r.acts,r.slot);ol.appendChild(r.root)});card.appendChild(ol);
   }
   var u=d.usage||{};
   card.appendChild(el("div","meta fine",(d.model||"model")+" · "+(u.input_tokens||0)+" in / "+(u.output_tokens||0)+" out tokens"));
@@ -805,8 +806,6 @@ async function run(){
     else{
       renderAnswer(d,q,out);
       var card=out.lastChild;
-      var sh=card.querySelector("ol.srcs");
-      if(sh&&sh.previousSibling)sh.previousSibling.textContent="Sources ("+(d.citations||[]).length+")";
       moreSources(card,q);
       siteBlocks(d,card);
       ratingPill(card,{request:q,text:String(d.answer||"")});
