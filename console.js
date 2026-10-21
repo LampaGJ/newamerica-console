@@ -178,8 +178,8 @@ function blurbs(parent,o){
 }
 //#rows-start
 function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
-// "See more like this (n)" for a positive related_count, '' otherwise (the link is then not rendered); "50+" at the cap (RELATED_CAP, src/mcp/hit.ts:93), where n is a floor not a count.
-function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?'See more like this ('+(n>=50?'50+':Math.floor(n))+')':''}
+// "n more like this" for a positive related_count, '' otherwise (the link is then not rendered); "50+" at the cap (RELATED_CAP, src/mcp/hit.ts:93), where n is a floor not a count.
+function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?(n>=50?'50+':Math.floor(n))+' more like this':''}
 var TAG_KEYS=['types','programs','topics','issues','projects'],TAG_MAX=6;
 // Every taxonomy name on a row, known taxonomies first, then any other key; the row's own program and repeats dropped.
 function tagNames(t,skip){
@@ -200,7 +200,7 @@ function progRow(o){
   if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
   return r;
 }
-// Read / Cite and, when related_count > 0, "See more like this (n)" for a numbered document row; null for social posts and rows without an id.
+// Read / Cite and, when related_count > 0, "n more like this" for a numbered document row; null for social posts and rows without an id.
 function actsRow(o){
   if(!o||!numId(o.id)||o.kind==='social')return null;
   var box=el('div','acts'),rb=el('button',null,'Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
@@ -247,7 +247,7 @@ function item(it){
   return d;
 }
 var REDUCED=function(){return matchMedia("(prefers-reduced-motion: reduce)").matches};
-// Read, Cite and See more like this on one source row; slot holds the Read/Cite output under the row.
+// Read, Cite and "n more like this" on one source row; slot holds the Read/Cite output under the row.
 function wireActs(it,a,slot){
   var rb=a.rb,cb=a.cb;
   if(a.mb)a.mb.onclick=function(){openExplore(it,a.mb)};

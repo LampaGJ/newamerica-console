@@ -29,7 +29,7 @@ summary{cursor:pointer}
 .au img{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--line)}
 .tags span{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 .35rem;margin:.1rem .2rem .1rem 0}
 .abs{margin:.5rem 0}
-.acts{display:flex;gap:.5rem;flex-wrap:wrap}
+.acts{display:flex;gap:.4rem;flex-wrap:wrap}.acts button{padding:.15rem .55rem;min-height:30px;font-size:.9rem}
 pre.doc,pre.cite{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.6rem;font:.85rem/1.45 ui-monospace,Menlo,monospace;margin:.6rem 0 0;max-width:100%}
 
 main{flex:1 0 auto;width:100%;position:relative;z-index:0;isolation:isolate;padding-bottom:1rem}
