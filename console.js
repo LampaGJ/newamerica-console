@@ -362,20 +362,30 @@ function chips(list){
   return box;
 }
 //#starters-start
-// t: "r" research question (g = issue area) or "i" institution question (g = category). live:false holds a question out of the rotation until its fix lands (none held now: funding went live with #117 and #119).
+// t: "r" research question (g = issue area; k = "g" general, a newcomer could ask it without knowing New America's catalogue, or "s" specific, it names a report, person, survey, index or program) or "i" institution question (g = category). live:false holds a question out of the rotation until its fix lands (none held now: funding went live with #117 and #119).
 var STARTERS=[
-{t:"r",g:"thriving-families",q:"How did Vermont get universal child care, and could other states copy it?"},
-{t:"r",g:"thriving-families",q:"What do parents of young children say they need most, in New America's National Parent Survey?"},
-{t:"r",g:"thriving-families",q:"What does New America recommend for running a cash assistance program well?"},
-{t:"r",g:"technology-democracy",q:"What did New America say about Apple's privacy changes, and why did it call them concerning?"},
-{t:"r",g:"technology-democracy",q:"What has New America written about artificial intelligence since 2020?"},
-{t:"r",g:"technology-democracy",q:"What does New America recommend to protect college students' data privacy?"},
-{t:"r",g:"democratic-futures",q:"What did Political Reform find in its new polling on ballot initiatives in states without them?"},
-{t:"r",g:"democratic-futures",q:"What does Mark Schmitt argue in Democracy Reforms Go Better Together?"},
-{t:"r",g:"education-work",q:"What does Varying Degrees 2025 show about where Americans agree and disagree on higher education?"},
-{t:"r",g:"education-work",q:"What went wrong when a for-profit college replaced its instructors with a chatbot?"},
-{t:"r",g:"global-security",q:"What does New America say about the risk of data centers becoming targets, and how to protect them?"},
-{t:"r",g:"global-security",q:"Why do so few women work in cybersecurity?"},
+{t:"r",k:"s",g:"thriving-families",q:"How did Vermont get universal child care, and could other states copy it?"},
+{t:"r",k:"s",g:"thriving-families",q:"What do parents of young children say they need most, in New America's National Parent Survey?"},
+{t:"r",k:"g",g:"thriving-families",q:"What does New America recommend for running a cash assistance program well?"},
+{t:"r",k:"g",g:"thriving-families",q:"What does New America say about child care costs?"},
+{t:"r",k:"g",g:"thriving-families",q:"How could paid family leave work in the United States?"},
+{t:"r",k:"s",g:"technology-democracy",q:"What did New America say about Apple's privacy changes, and why did it call them concerning?"},
+{t:"r",k:"g",g:"technology-democracy",q:"What has New America written about artificial intelligence since 2020?"},
+{t:"r",k:"g",g:"technology-democracy",q:"What does New America recommend to protect college students' data privacy?"},
+{t:"r",k:"g",g:"technology-democracy",q:"What does New America say about how social media affects democracy?"},
+{t:"r",k:"g",g:"technology-democracy",q:"How should the government deal with the power of big tech companies?"},
+{t:"r",k:"s",g:"democratic-futures",q:"What did Political Reform find in its new polling on ballot initiatives in states without them?"},
+{t:"r",k:"s",g:"democratic-futures",q:"What does Mark Schmitt argue in Democracy Reforms Go Better Together?"},
+{t:"r",k:"g",g:"democratic-futures",q:"How could American elections work better, according to New America?"},
+{t:"r",k:"g",g:"democratic-futures",q:"What does New America say about why Americans feel so divided?"},
+{t:"r",k:"s",g:"education-work",q:"What does Varying Degrees 2025 show about where Americans agree and disagree on higher education?"},
+{t:"r",k:"s",g:"education-work",q:"What went wrong when a for-profit college replaced its instructors with a chatbot?"},
+{t:"r",k:"g",g:"education-work",q:"What does New America say about the cost of college and student debt?"},
+{t:"r",k:"g",g:"education-work",q:"How do apprenticeships help people get good jobs?"},
+{t:"r",k:"s",g:"global-security",q:"What does New America say about the risk of data centers becoming targets, and how to protect them?"},
+{t:"r",k:"g",g:"global-security",q:"Why do so few women work in cybersecurity?"},
+{t:"r",k:"g",g:"global-security",q:"What does New America say about how war is changing?"},
+{t:"r",k:"g",g:"global-security",q:"How is technology changing national security?"},
 {t:"i",g:"history",q:"How did New America begin?"},
 {t:"i",g:"history",q:"How has New America's focus changed since it began?"},
 {t:"i",g:"operations",q:"What does a National Fellow at New America actually do for a year?"},
@@ -392,10 +402,12 @@ var STARTER_KEY="na.starters";
 function startersPick(pool,n){
   var live=pool.filter(function(s){return s.live!==false});
   function groups(t){var o=[];live.forEach(function(s){if(s.t===t&&o.indexOf(s.g)<0)o.push(s.g)});return o}
-  function ask(t,g,i){var m=live.filter(function(s){return s.t===t&&s.g===g});return m[i%m.length].q}
+  function ask(t,g,i,k){var m=live.filter(function(s){return s.t===t&&s.g===g&&(!k||s.k===k)});if(!m.length)m=live.filter(function(s){return s.t===t&&s.g===g});return m[i%m.length].q}
   var ga=groups("r"),gc=groups("i");
   var ni=gc.length>=3?2:Math.min(gc.length,1),nr=Math.min(5-ni,ga.length),out=[],j;
-  for(j=0;j<nr;j++)out.push(ask("r",ga[(n*nr+j)%ga.length],Math.floor(n/ga.length)));
+  // Weighted to general questions, the kind a newcomer asks: of every 3 research chips 1 is specific (2 of 3, 3 of 4), and the specific slot moves with the visit counter.
+  var ns=Math.floor(nr/3),first=n%nr;
+  for(j=0;j<nr;j++)out.push(ask("r",ga[(n*nr+j)%ga.length],Math.floor(n/ga.length),((j-first+nr)%nr)<ns?"s":"g"));
   for(j=0;j<ni;j++)out.push(ask("i",gc[(n*ni+j)%gc.length],Math.floor(n/gc.length)));
   return out;
 }
