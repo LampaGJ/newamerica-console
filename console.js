@@ -199,6 +199,7 @@ function progRow(o){
   if(!o.program&&!names.length)return null;
   function sep(){if(!first){var s=el('span','sep',' \u00b7 ');s.setAttribute('aria-hidden','true');r.appendChild(s)}first=false}
   if(o.program){sep();var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='prog';else{var sp=el('span','prog');sp.appendChild(p);p=sp}r.appendChild(p)}
+  if(o.program&&o.programStatus&&typeof o.programStatus==='object'&&o.programStatus.former===true){sep();r.appendChild(el('span','prog-status','Former program'))}
   names.slice(0,TAG_MAX).forEach(function(n){sep();var c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);r.appendChild(c)});
   if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
   return r;
@@ -234,12 +235,67 @@ function bylineRow(people){
     av.appendChild(a);
   });
   if(more>0)av.appendChild(el('span','avatar rest','+'+more));
+  joinNames(nm,shown,more,function(p){var l=link(p.name,p.url);if(l.nodeType===1&&p.url)l.className='nm';return l});
+  row.appendChild(av);row.appendChild(nm);return row;
+}
+// The one joiner for names ("A & B", "A, B, C & 1 more"): bylineRow and speakerLines share it. mk(p) returns the node for one name.
+function joinNames(nm,shown,more,mk){
   shown.forEach(function(p,i){
     if(i>0)nm.appendChild(document.createTextNode(i===shown.length-1&&more<1?' & ':', '));
-    var l=link(p.name,p.url);if(l.nodeType===1&&p.url)l.className='nm';nm.appendChild(l);
+    nm.appendChild(mk(p));
   });
   if(more>0)nm.appendChild(document.createTextNode(' & '+more+' more'));
-  row.appendChild(av);row.appendChild(nm);return row;
+}
+// One console.warn per kind of malformed field per page load (the field is skipped, the rest of the item still draws).
+var WARNED={};
+function warnOnce(kind){if(WARNED[kind])return;WARNED[kind]=1;try{console.warn('console: skipped a malformed '+kind)}catch(e){}}
+// Consumer gate for speakers (issue #166): not an array, or an entry with no name, drops the entry; a link that is not http(s) drops only the link. Role is the stored heading, "Speakers" when blank.
+function cleanSpeakers(raw){
+  if(raw==null)return [];
+  if(!Array.isArray(raw)){warnOnce('speakers');return []}
+  var out=[];
+  raw.forEach(function(s){
+    if(!s||typeof s!=='object'||typeof s.name!=='string'||!s.name.trim()||(s.role!=null&&typeof s.role!=='string')||(s.title!=null&&typeof s.title!=='string')){warnOnce('speakers entry');return}
+    var c={name:s.name.trim(),title:typeof s.title==='string'?s.title.trim():'',role:typeof s.role==='string'&&s.role.trim()?s.role.trim():'Speakers',url:null};
+    if(s.url!=null){c.url=typeof s.url==='string'?safeUrl(s.url):null;if(!c.url)warnOnce('speaker link')}
+    if(s.photo!=null&&!(typeof s.photo==='string'&&safeUrl(s.photo)))warnOnce('speaker photo');
+    out.push(c);
+  });
+  return out;
+}
+// Role-grouped lines under an event or recording: "Moderator: A. Name", "Speakers: B, C & 2 more". A New America person links to their page; an outside speaker is name and title only. null when there are none.
+function speakerLines(raw){
+  var list=cleanSpeakers(raw);if(!list.length)return null;
+  var box=el('div','speakers'),groups=[];
+  list.forEach(function(s){
+    var g=groups.filter(function(x){return x.role===s.role})[0];
+    if(!g){g={role:s.role,people:[]};groups.push(g)}
+    g.people.push(s);
+  });
+  groups.forEach(function(g){
+    var row=el('div','sp-row'),nm=el('span','sp-names');
+    row.appendChild(el('span','sp-role',g.role+': '));
+    joinNames(nm,g.people.slice(0,BY_MAX),Math.max(0,g.people.length-BY_MAX),function(p){
+      var w=el('span','sp'),l=link(p.name,p.url);if(l.nodeType===1)l.className='nm';w.appendChild(l);
+      if(p.title)w.appendChild(el('span','sp-title',' ('+p.title+')'));
+      return w;
+    });
+    row.appendChild(nm);box.appendChild(row);
+  });
+  return box;
+}
+// The source's image (issue #166): http(s) url and whole positive width and height, else it is skipped. The stored alt stays (empty means decorative); a failed load hides the box and leaves the text.
+function imageBlock(o){
+  var im=o&&o.image;if(im==null)return null;
+  function dim(n){return typeof n==='number'&&isFinite(n)&&Math.floor(n)===n&&n>0}
+  var u=typeof im==='object'&&typeof im.url==='string'?safeUrl(im.url):null;
+  if(!u||!dim(im.width)||!dim(im.height)||(im.alt!=null&&typeof im.alt!=='string')){warnOnce('image');return null}
+  var box=el('div','src-img'),a=el('img');
+  a.setAttribute('src',u);a.setAttribute('alt',im.alt||'');a.setAttribute('width',String(im.width));a.setAttribute('height',String(im.height));
+  a.setAttribute('loading','lazy');a.setAttribute('referrerpolicy','no-referrer');
+  a.referrerPolicy='no-referrer';
+  a.onerror=function(){box.className='src-img gone';box.setAttribute('hidden','')};
+  box.appendChild(a);return box;
 }
 // Topic and issue chips as soft pills: linked ones go to their newamerica.org page; at most TAG_MAX, then "+n".
 function chipList(o){
@@ -293,10 +349,15 @@ function srcItem(o,n,tag){
   if(video&&o.popular===true)meta.appendChild(el('span','tag-pop','Popular'));
   var pu=safeUrl(o.pdfUrl);
   if(pu){var pa=el('a','pdf-pill','PDF');pa.href=pu;pa.target='_blank';pa.rel='noopener';pa.setAttribute('aria-label','Open PDF of '+(o.title||'this source')+' (new tab)');meta.appendChild(pa)}
+  if(o.downloads!=null&&!Array.isArray(o.downloads))warnOnce('downloads');
+  if(Array.isArray(o.downloads))o.downloads.forEach(function(d){var du=d&&typeof d==='object'&&typeof d.url==='string'?safeUrl(d.url):null;if(!du||typeof d.title!=='string'||!d.title.trim()){warnOnce('download');return}if(du===pu)return;var da=el('a','pdf-pill',typeof d.kind==='string'&&d.kind.trim()?d.kind.trim():'File');da.href=du;da.target='_blank';da.rel='noopener';da.setAttribute('aria-label','Open '+d.title.trim()+' (new tab)');meta.appendChild(da)});
+  if(o.charts!=null&&!Array.isArray(o.charts))warnOnce('charts');
+  if(Array.isArray(o.charts))o.charts.forEach(function(c){var cu=c&&typeof c==='object'&&typeof c.url==='string'?safeUrl(c.url):null;if(!cu||typeof c.title!=='string'||!c.title.trim()){warnOnce('chart');return}var ca=el('a','pdf-pill','Chart');ca.href=cu;ca.target='_blank';ca.rel='noopener';ca.setAttribute('aria-label','Open chart '+c.title.trim()+' (new tab)');meta.appendChild(ca)});
   if(o.chapters>0)meta.appendChild(el('span','chap-note',o.chapters+(o.chapters===1?' chapter':' chapters')));
   if(typeof o.similarity==='number')meta.appendChild(el('span','sim',Math.round(o.similarity*100)+'% similar'));
   var dl=dateLabel(o.date),tm=el('time','date',dl||'Undated');if(dl)tm.setAttribute('datetime',String(o.date).slice(0,10));meta.appendChild(tm);
   card.appendChild(meta);
+  var img=imageBlock(o);if(img)card.appendChild(img);
   var h=el('h3','src-title');h.appendChild(link(o.title||'(untitled)',o.url));
   if(o.external)h.appendChild(el('span','badge','(coverage)'));
   card.appendChild(h);
@@ -305,6 +366,7 @@ function srcItem(o,n,tag){
   if(dek)card.appendChild(el('p','dek',dek));
   if(o.funders&&o.funders.length){var fr=el('div','fund-row');fr.appendChild(el('span','fund-lab','Funded by'));o.funders.forEach(function(f){fr.appendChild(el('span','tl-chip',f))});card.appendChild(fr)}
   var ref=video?videoRef(o):null;if(ref)card.appendChild(playBox(ref,o.title||'this video'));
+  var sps=speakerLines(o.speakers);if(sps)card.appendChild(sps);
   var chips=chipList(o);if(chips)card.appendChild(chips);
   var by=bylineRow(srcPeople(o)),acts=actsRow(o);
   if(by||acts){var foot=el('div','src-foot');if(by)foot.appendChild(by);if(acts)foot.appendChild(acts.box);card.appendChild(foot)}
@@ -694,8 +756,23 @@ function renderCitationReport(d,out){
 function renderPeople(d,out){
   var card=el("article","card pp"),list=d.people||[];
   card.appendChild(el("h3",null,"Who works on "+(d.topic||"this topic")));
+  var cur=Array.isArray(d.curated)?d.curated.filter(function(c){return c&&typeof c==='object'&&c.curated===true&&typeof c.name==='string'&&c.name.trim()}):[];
+  if(Array.isArray(d.curated)&&cur.length<d.curated.length)warnOnce('curated expert');
+  if(cur.length){
+    if(typeof d.curatedNote==='string'&&d.curatedNote.trim())card.appendChild(el("p","meta",d.curatedNote.trim()));
+    var cl=el("ul","pp-list pp-curated");
+    cur.forEach(function(c){
+      var ci=el("li","pp-person"),ch=el("div","pp-head");
+      if(typeof c.photoUrl==='string'&&safeUrl(c.photoUrl)){var cim=el("img","pp-av");cim.src=c.photoUrl;cim.alt="";cim.loading="lazy";cim.referrerPolicy="no-referrer";ch.appendChild(cim)}
+      else ch.appendChild(el("span","pp-av pp-av--none",c.name.trim().charAt(0)));
+      var cw=el("div"),cn=el("strong");cn.appendChild(link(c.name.trim(),c.url));cw.appendChild(cn);
+      if(typeof c.title==='string'&&c.title.trim())cw.appendChild(el("div","meta",c.title.trim()));
+      ch.appendChild(cw);ci.appendChild(ch);cl.appendChild(ci);
+    });
+    card.appendChild(cl);
+  }
   if(d.note)card.appendChild(el("p","meta",d.note));
-  else card.appendChild(el("p","meta","Ranked from "+d.corpusSize+(d.corpusSize===1?" publication":" publications")+" on the topic. Bylines only."));
+  else card.appendChild(el("p","meta",(cur.length?"Other people, ranked from ":"Ranked from ")+d.corpusSize+(d.corpusSize===1?" publication":" publications")+" on the topic. Bylines only."));
   var ol=el("ol","pp-list");
   list.forEach(function(p){
     var li=el("li","pp-person"),h=el("div","pp-head");
@@ -723,11 +800,13 @@ function renderEvents(d,out){
     var li=el("li"),h=el("div","st");h.appendChild(link(e.title||"(untitled)",e.url));
     if(e.format)h.appendChild(el("span","tl-chip ev-fmt",e.format==="in-person"?"In person":e.format.charAt(0).toUpperCase()+e.format.slice(1)));
     li.appendChild(h);
-    li.appendChild(el("div","meta",[evWhen(e.event_start),e.program].filter(Boolean).join(" · ")));
+    li.appendChild(el("div","meta",[evWhen(e.event_start),typeof e.location==='string'?e.location:'',e.program].filter(Boolean).join(" · ")));
+    var sp=speakerLines(e.speakers);if(sp)li.appendChild(sp);
     if(e.abstract)li.appendChild(el("p","ev-abs",e.abstract));
     var rec=e.recording&&typeof e.recording==='object'?e.recording:null,rr=rec?videoRef({videoId:rec.videoId,start:rec.start}):null;
-    if(rr)li.appendChild(playBox(rr,String(rec.title||e.title||'this event')));
-    if(safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link("Register",e.registrationUrl));li.appendChild(r)}
+    // isPast is decided by the server (injected clock); the console never reads the time. Upcoming: registration, no player. Past: the recording, no registration link. A payload with no isPast (an older server) keeps the old behaviour.
+    if(e.isPast!==false&&rr)li.appendChild(playBox(rr,String(rec.title||e.title||'this event')));
+    if(e.isPast!==true&&safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link(typeof e.registrationLabel==='string'&&e.registrationLabel.trim()?e.registrationLabel.trim():"Register",e.registrationUrl));li.appendChild(r)}
     ol.appendChild(li);
   });
   if(list.length)card.appendChild(ol);
