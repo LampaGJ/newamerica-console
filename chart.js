@@ -86,7 +86,7 @@ function srList(spec){
   return ul;
 }
 function draw(d3,host,spec){
-  if(spec.type==="line"&&styled(spec)){host.appendChild(lineSvg(d3,spec));return}
+  if(spec.type==="line"&&styled(spec)){host.appendChild(lineSvg(d3,spec,{narrow:host.clientWidth>0&&host.clientWidth<480}));return}
   var T=window.NAChartTheme,W=T.width,H=T.height,m=T.margin,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
   var labels=spec.series[0].points.map(function(p){return p.label});
   var stacked=spec.type==="stacked_bar",line=spec.type==="line";
@@ -119,54 +119,115 @@ function draw(d3,host,spec){
 }
 function svgEl(tag,attrs,txt){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)if(Object.prototype.hasOwnProperty.call(attrs,k)&&attrs[k]!=null)e.setAttribute(k,String(attrs[k]));if(txt!=null)e.textContent=txt;return e}
 function r1(n){return Math.round(n*10)/10}
-// A line chart with an optional right axis (issue #190): left values in the chart units, right values in the right series' own units, each axis from zero.
-// D3 provides the scales and the line paths; the elements are made directly so the same function runs under a test DOM. Returns the <svg>.
-function lineSvg(d3,spec){
+// ---- One shared tick grid for two value axes (principal, issue #190 follow-up): both axes from zero, K intervals, tick i at the same height on both. ----
+var NICE=[1,2,2.5,5,10];
+// the smallest step from {1, 2, 2.5, 5, 10} x 10^n with step*k >= max; a count of people never gets a fractional step
+function niceStep(max,k,integer){
+  if(!(max>0))return 1;
+  var p=Math.pow(10,Math.floor(Math.log10(max/k)));
+  for(var e=0;e<3;e++)for(var i=0;i<NICE.length;i++){var s=+(NICE[i]*p*Math.pow(10,e)).toPrecision(12);if(integer&&Math.round(s)!==s)continue;if(s*k>=max)return s}
+  return +(p*1000).toPrecision(12);
+}
+// K and one step per axis. K (4 or 5) is the one with the lowest total blank fraction over both axes (the sum of 1 - max/(step*K));
+// on a tie, the K whose worst axis wastes no more than 40 percent of the height wins, then K = 4. narrow (phone width) fixes K at 4.
+function alignedAxes(maxL,maxR,o){
+  o=o||{};
+  var fit=function(k){var l=niceStep(maxL,k,o.intL),r=niceStep(maxR,k,o.intR),wl=maxL>0?1-maxL/(l*k):0,wr=maxR>0?1-maxR/(r*k):0;return{k:k,left:l,right:r,waste:Math.max(wl,wr),total:wl+wr}};
+  if(o.narrow)return fit(4);
+  var a=fit(4),b=fit(5);
+  if(Math.abs(a.total-b.total)>1e-9)return a.total<b.total?a:b;
+  if((a.waste>0.4)!==(b.waste>0.4))return a.waste>0.4?b:a;
+  return a;
+}
+function maxValue(ss){var m=0;ss.forEach(function(s){s.points.forEach(function(p){if(p.value>m)m=p.value})});return m}
+function hasNegative(spec){return spec.series.some(function(s){return s.points.some(function(p){return p.value<0})})}
+var FALLBACK_NOTE="Some values are below zero, so the two measures are drawn in separate panels, each with its own scale.";
+// A line chart with an optional right axis (issue #190). Both axes start at zero and share one set of tick heights (alignedAxes): the gridlines are drawn
+// once, from the left axis, and the right axis is labelled at the same heights. D3 provides the point scale and the line paths; the elements are made
+// directly so the same function runs under a test DOM. o.narrow: phone width (K = 4). A two-axis spec with a value below zero draws two stacked panels instead.
+function lineSvg(d3,spec,o){
+  o=o||{};
+  var right=spec.series.filter(function(s){return s.axis==="right"});
+  if(right.length&&hasNegative(spec))return panelsSvg(d3,spec);
   var T=window.NAChartTheme,D=T.dual,W=D.width,H=D.height,m=D.margin,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
   var ref=labelsOf(refSeries(spec));
-  var left=spec.series.filter(function(s){return s.axis!=="right"}),right=spec.series.filter(function(s){return s.axis==="right"});
-  var maxOf=function(ss){return d3.max(ss,function(s){return d3.max(s.points,function(p){return p.value})})||1};
-  var yL=d3.scaleLinear().domain([0,maxOf(left)]).nice().range([ih,0]);
-  var yR=right.length?d3.scaleLinear().domain([0,maxOf(right)]).nice().range([ih,0]):null;
+  var left=spec.series.filter(function(s){return s.axis!=="right"});
   var rUnits=right.length?unitsOf(spec,right[0]):null;
+  var count=function(u){return!/dollar/i.test(u)};
+  var ax=right.length?alignedAxes(maxValue(left),maxValue(right),{narrow:o.narrow,intL:count(spec.units),intR:count(rUnits)}):null;
+  var yL,yR=null,K;
+  if(ax){K=ax.k;yL=d3.scaleLinear().domain([0,ax.left*K]).range([ih,0]);yR=d3.scaleLinear().domain([0,ax.right*K]).range([ih,0])}
+  else{var one=alignedAxes(maxValue(left),0,{narrow:o.narrow,intL:count(spec.units)});K=one.k;yL=d3.scaleLinear().domain([0,one.left*K]).range([ih,0]);ax={k:K,left:one.left,right:null}}
   var x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
   var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"img","aria-label":spec.title,"class":"chart-svg",style:"max-width:"+W+"px;height:auto"});
   var g=svgEl("g",{transform:"translate("+m.left+","+m.top+")"});svg.appendChild(g);
   var tickStyle="fill:"+T.muted+";font-size:"+T.fontSize+"px";
   var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
-  yL.ticks(5).forEach(function(t){
-    axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:r1(yL(t)),y2:r1(yL(t)),style:"stroke:"+T.grid}));
-    axes.appendChild(svgEl("text",{x:-8,y:r1(yL(t)),dy:"0.32em","text-anchor":"end",style:tickStyle},T.axisFormat(spec.units,t)));
-  });
-  if(yR)yR.ticks(5).forEach(function(t){if(Math.floor(t)!==t&&!/dollar/i.test(rUnits))return;axes.appendChild(svgEl("text",{x:iw+8,y:r1(yR(t)),dy:"0.32em","text-anchor":"start",style:tickStyle},T.axisFormat(rUnits,t)))});
-  axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:ih,y2:ih,style:"stroke:"+T.muted}));
+  for(var i=0;i<=K;i++){
+    var py=r1(ih-(ih*i)/K);
+    axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(i===0?T.muted:T.grid)}));
+    axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end","class":"chart-tick-left",style:tickStyle},T.axisFormat(spec.units,+(ax.left*i).toPrecision(12))));
+    if(yR)axes.appendChild(svgEl("text",{x:iw+8,y:py,dy:"0.32em","text-anchor":"start","class":"chart-tick-right",style:tickStyle},T.axisFormat(rUnits,+(ax.right*i).toPrecision(12))));
+  }
   T.tickLabels(ref).forEach(function(l){axes.appendChild(svgEl("text",{x:r1(x(l)),y:ih+20,"text-anchor":"middle",style:tickStyle},l))});
   var titleStyle="fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600";
   axes.appendChild(svgEl("text",{x:-m.left+4,y:-14,"text-anchor":"start",style:titleStyle,"class":"chart-axis-title"},left.map(function(s){return s.name}).join(", ")+" ("+spec.units+")"+(right.length?", left axis":"")));
   if(right.length)axes.appendChild(svgEl("text",{x:iw+m.right-4,y:-14,"text-anchor":"end",style:titleStyle,"class":"chart-axis-title"},right.map(function(s){return s.name}).join(", ")+" ("+rUnits+"), right axis"));
   var ends=[];
   spec.series.forEach(function(s,k){
-    var y=s.axis==="right"?yR:yL,l=look(s,k),u=unitsOf(spec,s),vals=lookup(s);
-    var pts=ref.map(function(lab){return vals[lab]===undefined?null:[r1(x(lab)),r1(y(vals[lab]))]});
-    var gs=svgEl("g",{"class":"chart-series"});g.appendChild(gs);
-    gs.appendChild(svgEl("path",{d:d3.line().defined(function(p){return p!==null})(pts),fill:"none","stroke-width":2.5,"stroke-linejoin":"round",style:"stroke:"+l.color+(T.dash[l.dash]?";stroke-dasharray:"+T.dash[l.dash]:"")}));
-    s.points.forEach(function(p){
-      var px=r1(x(p.label)),py=r1(y(p.value)),fill="fill:"+l.color+";stroke:var(--bg);stroke-width:1",mk;
-      if(l.marker==="none")return;
-      if(l.marker==="square")mk=svgEl("rect",{x:r1(px-4),y:r1(py-4),width:8,height:8,style:fill});
-      else if(l.marker==="diamond")mk=svgEl("path",{d:"M"+px+","+r1(py-5.5)+"L"+r1(px+5.5)+","+py+"L"+px+","+r1(py+5.5)+"L"+r1(px-5.5)+","+py+"Z",style:fill});
-      else mk=svgEl("circle",{cx:px,cy:py,r:4,style:fill});
-      mk.appendChild(svgEl("title",{},s.name+", "+p.label+": "+fmtU(u,p.value)));
-      gs.appendChild(mk);
-    });
-    var last=s.points[s.points.length-1];
-    ends.push({s:s,color:l.color,x:r1(x(last.label)),y:r1(y(last.value)),text:s.name+" "+T.shortFormat(u,last.value)});
+    var y=s.axis==="right"?yR:yL,l=look(s,k),u=unitsOf(spec,s);
+    drawSeries(d3,g,s,l,u,ref,x,y,ends);
   });
-  // direct end labels: above the higher line's last point, below the lower one's, never on top of each other
+  endLabels(g,ends,T);
+  return svg;
+}
+function drawSeries(d3,g,s,l,u,ref,x,y,ends){
+  var vals=lookup(s);
+  var pts=ref.map(function(lab){return vals[lab]===undefined?null:[r1(x(lab)),r1(y(vals[lab]))]});
+  var gs=svgEl("g",{"class":"chart-series"});g.appendChild(gs);
+  gs.appendChild(svgEl("path",{d:d3.line().defined(function(p){return p!==null})(pts),fill:"none","stroke-width":2.5,"stroke-linejoin":"round",style:"stroke:"+l.color+(window.NAChartTheme.dash[l.dash]?";stroke-dasharray:"+window.NAChartTheme.dash[l.dash]:"")}));
+  s.points.forEach(function(p){
+    var px=r1(x(p.label)),py=r1(y(p.value)),fill="fill:"+l.color+";stroke:var(--bg);stroke-width:1",mk;
+    if(l.marker==="none")return;
+    if(l.marker==="square")mk=svgEl("rect",{x:r1(px-4),y:r1(py-4),width:8,height:8,style:fill});
+    else if(l.marker==="diamond")mk=svgEl("path",{d:"M"+px+","+r1(py-5.5)+"L"+r1(px+5.5)+","+py+"L"+px+","+r1(py+5.5)+"L"+r1(px-5.5)+","+py+"Z",style:fill});
+    else mk=svgEl("circle",{cx:px,cy:py,r:4,style:fill});
+    mk.appendChild(svgEl("title",{},s.name+", "+p.label+": "+fmtU(u,p.value)));
+    gs.appendChild(mk);
+  });
+  var last=s.points[s.points.length-1];
+  ends.push({color:l.color,x:r1(x(last.label)),y:r1(y(last.value)),text:s.name+" "+window.NAChartTheme.shortFormat(u,last.value)});
+}
+// direct end labels: above the higher line's last point, below the lower one's, never on top of each other
+function endLabels(g,ends,T){
   ends.sort(function(a,b){return a.y-b.y});
   ends.forEach(function(e,i){
     var ly=i===0?e.y-10:Math.max(e.y+18,ends[i-1].ly+14);e.ly=ly;
     g.appendChild(svgEl("text",{x:e.x,y:r1(ly),"text-anchor":"end","class":"chart-end",style:"fill:"+e.color+";font-size:"+T.fontSize+"px;font-weight:600"},e.text));
+  });
+}
+// The fallback for a two-axis spec with a value below zero: one panel per axis group, stacked, each with its own nice scale through zero, and a line saying so.
+function panelsSvg(d3,spec){
+  var T=window.NAChartTheme,D=T.dual,W=D.width,m=D.margin,iw=W-m.left-m.right,ph=130,gap=44,top=40;
+  var ref=labelsOf(refSeries(spec)),x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
+  var groups=[spec.series.filter(function(s){return s.axis!=="right"}),spec.series.filter(function(s){return s.axis==="right"})];
+  var H=top+2*ph+gap+34;
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"img","aria-label":spec.title+". "+FALLBACK_NOTE,"class":"chart-svg chart-panels",style:"max-width:"+W+"px;height:auto"});
+  svg.appendChild(svgEl("text",{x:4,y:14,"class":"chart-fallback",style:"fill:"+T.muted+";font-size:"+T.fontSize+"px"},FALLBACK_NOTE));
+  var tickStyle="fill:"+T.muted+";font-size:"+T.fontSize+"px",k0=0;
+  groups.forEach(function(ss,gi){
+    var u=unitsOf(spec,ss[0]),lo=0,hi=0;
+    ss.forEach(function(s){s.points.forEach(function(p){if(p.value<lo)lo=p.value;if(p.value>hi)hi=p.value})});
+    var st=niceStep(hi-lo||1,4,!/dollar/i.test(u)),a=Math.floor(lo/st)*st,b=Math.ceil(hi/st)*st;if(a===b)b=a+st;
+    var y=d3.scaleLinear().domain([a,b]).range([ph,0]);
+    var g=svgEl("g",{transform:"translate("+m.left+","+(top+gi*(ph+gap))+")","class":"chart-panel"});svg.appendChild(g);
+    var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
+    for(var t=a;t<=b+st/2;t+=st){var v=+t.toPrecision(12),py=r1(y(v));axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end",style:tickStyle},T.axisFormat(u,v)))}
+    axes.appendChild(svgEl("text",{x:-m.left+4,y:-8,"text-anchor":"start","class":"chart-axis-title",style:"fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600"},ss.map(function(s){return s.name}).join(", ")+" ("+u+")"));
+    if(gi===1)T.tickLabels(ref).forEach(function(l){axes.appendChild(svgEl("text",{x:r1(x(l)),y:ph+20,"text-anchor":"middle",style:tickStyle},l))});
+    var ends=[];
+    ss.forEach(function(s){drawSeries(d3,g,s,look(s,k0),u,ref,x,y,ends);k0++});
+    endLabels(g,ends,T);
   });
   return svg;
 }
@@ -196,5 +257,5 @@ function render(spec){
   loadD3().then(function(d3){draw(d3,plot,spec)}).catch(function(){plot.textContent="The picture could not load, so the numbers are in the table below.";det.open=true});
   return fig;
 }
-window.NAChart={check:check,render:render,format:fmt,lineSvg:lineSvg,keyWords:keyWords};
+window.NAChart={check:check,render:render,format:fmt,lineSvg:lineSvg,keyWords:keyWords,alignedAxes:alignedAxes,niceStep:niceStep};
 })();
