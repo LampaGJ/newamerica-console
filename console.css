@@ -3,6 +3,9 @@
 /* Chart tokens: series colours reuse the console palette first (--acc, --warn, --mut); chart-theme.js reads only these names. */
 :root{--chart-1:var(--acc);--chart-2:var(--warn);--chart-3:#2e7d5b;--chart-4:#7a4aa3;--chart-5:var(--mut);--chart-6:#9a6b00;--chart-text:var(--fg);--chart-muted:var(--mut);--chart-grid:var(--line)}
 @media (prefers-color-scheme:dark){:root{--chart-3:#6fcf9f;--chart-4:#c29af0;--chart-6:#e0b84a}}
+/* Named series colours (a spec's style.color, issue #190): each at least 5.5:1 against the page and card backgrounds in its theme; a series never differs by colour alone (dash and marker differ too). */
+:root{--chart-green:#1a7335;--chart-red:#b3261e;--chart-blue:#0b5cad;--chart-orange:#a14a00;--chart-gray:#5a6270}
+@media (prefers-color-scheme:dark){:root{--chart-green:#5ccf85;--chart-red:#ff8a80;--chart-blue:#6db3f5;--chart-orange:#ffa657;--chart-gray:#a0a8b4}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
@@ -193,6 +196,15 @@ html{scroll-behavior:auto}
 .chart-tbl th,.chart-tbl td{border-top:1px solid var(--line);padding:.2rem .5rem;text-align:right}
 .chart-tbl th[scope=row]{text-align:left;font-weight:400}
 .chart-src{margin:.3rem 0 0}
+/* Keyed legend (styled and two-axis charts): a short line in the series' dash with its marker on top, then the words. */
+.chart-keyed{flex-direction:column;gap:.15rem}
+.chart-key{position:relative;display:inline-block;width:1.8rem;height:.8rem;vertical-align:-1px}
+.chart-key::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:2.5px solid currentColor;transform:translateY(-50%)}
+.chart-key.dash-dashed::before{border-top-style:dashed}.chart-key.dash-dotted::before{border-top-style:dotted}
+.chart-key::after{content:"";position:absolute;left:50%;top:50%;width:.5rem;height:.5rem;background:currentColor;transform:translate(-50%,-50%)}
+.chart-key.mark-circle::after{border-radius:50%}.chart-key.mark-diamond::after{transform:translate(-50%,-50%) rotate(45deg)}.chart-key.mark-none::after{display:none}
+.chart-end{paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 /* Source cards: meta row, title, summary, excerpt, chips, byline and actions. Colours come from the console tokens only. */
 .sources-head{display:flex;align-items:baseline;gap:.6rem;margin:1.2rem 0 .8rem;padding-bottom:.6rem;border-bottom:2px solid var(--fg)}

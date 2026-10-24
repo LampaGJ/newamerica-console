@@ -2,10 +2,20 @@
 (function(){
 var D3_URL="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js";
 var D3_SRI="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i";
-var TYPES=["bar","line","stacked_bar"];
+var TYPES=["bar","line","stacked_bar"],AXES=["left","right"],COLORS=["green","red","blue","orange","gray"],DASHES=["solid","dashed","dotted"],MARKERS=["circle","square","diamond","none"];
+var SVGNS="http://www.w3.org/2000/svg";
 function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function str(v,max){return typeof v==="string"&&v.length>0&&v.length<=max}
 function https(u){return typeof u==="string"&&/^https?:\/\/\S+$/i.test(u)}
+function oneOf(v,list){return v===undefined||list.indexOf(v)>=0}
+// true when sub is ref with some labels left out, the rest in the same order
+function subset(sub,ref){var j=0;for(var i=0;i<sub.length;i++){while(j<ref.length&&ref[j]!==sub[i])j++;if(j===ref.length)return false;j++}return true}
+function labelsOf(r){return r.points.map(function(p){return p.label})}
+// the series every other series' labels are measured against: the first one on the left axis
+function refSeries(s){for(var i=0;i<s.series.length;i++)if(s.series[i].axis!=="right")return s.series[i];return s.series[0]}
+function unitsOf(spec,r){return r.unitsLabel||spec.units}
+// a spec that uses the two-axis or style fields: drawn by lineSvg, with a keyed legend and a screen-reader list
+function styled(s){return s.series.some(function(r){return r.axis!==undefined||r.style!==undefined||r.unitsLabel!==undefined})}
 // null when the spec has the server's shape, else one plain reason.
 function check(s){
   if(!s||typeof s!=="object")return"not an object";
@@ -13,20 +23,35 @@ function check(s){
   if(!str(s.title,200)||!str(s.units,40))return"missing title or units";
   if(typeof s.asOf!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s.asOf))return"bad as-of date";
   if(!Array.isArray(s.series)||s.series.length<1||s.series.length>8)return"bad series list";
-  var labels=null;
   for(var i=0;i<s.series.length;i++){
     var r=s.series[i];
     if(!r||!str(r.name,80)||!r.source||!str(r.source.label,120)||!https(r.source.url))return"series "+i+" has no name or source link";
     if(!Array.isArray(r.points)||r.points.length<1||r.points.length>60)return"series "+i+" has no points";
     for(var j=0;j<r.points.length;j++){var p=r.points[j];if(!p||!str(p.label,80)||typeof p.value!=="number"||!isFinite(p.value))return"series "+i+" has a bad point"}
-    var key=r.points.map(function(p){return p.label}).join("\u0000");
-    if(labels===null)labels=key;else if(key!==labels)return"series do not share their labels";
+    if(!oneOf(r.axis,AXES))return"series "+i+" has an unknown axis";
+    if(r.unitsLabel!==undefined&&!str(r.unitsLabel,40))return"series "+i+" has bad units";
+    if(r.style!==undefined&&(!r.style||typeof r.style!=="object"||!oneOf(r.style.color,COLORS)||!oneOf(r.style.dash,DASHES)||!oneOf(r.style.marker,MARKERS)))return"series "+i+" has a bad style";
+  }
+  var right=s.series.filter(function(r){return r.axis==="right"}),left=s.series.filter(function(r){return r.axis!=="right"});
+  if(right.length&&!left.length)return"a right axis needs a left-axis series";
+  if(right.length&&s.type!=="line")return"a right axis is drawn on line charts only";
+  if(left.some(function(r){return r.unitsLabel!==undefined&&r.unitsLabel!==s.units}))return"a left-axis series is in the chart units";
+  if(right.some(function(r){return r.unitsLabel===undefined||r.unitsLabel===s.units||r.unitsLabel!==right[0].unitsLabel}))return"the right axis needs one set of units of its own";
+  var ref=labelsOf(refSeries(s));
+  for(var k=0;k<s.series.length;k++){
+    var own=labelsOf(s.series[k]);
+    if(s.type==="line"?!subset(own,ref):own.join("\u0000")!==ref.join("\u0000"))return"series do not share their labels";
   }
   if(s.note!==undefined&&!str(s.note,300))return"bad note";
   return null;
 }
 function grouped(n){return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,",")}
-function fmt(spec,v){return/dollar/i.test(spec.units)?(Math.abs(v)>=1e6?"$"+(v/1e6).toFixed(1)+" million":"$"+grouped(v)):grouped(v)}
+function fmtU(units,v){return/dollar/i.test(units)?(Math.abs(v)>=1e6?"$"+(v/1e6).toFixed(1)+" million":"$"+grouped(v)):grouped(v)}
+function fmt(spec,v){return fmtU(spec.units,v)}
+var MARKER_WORD={circle:"round markers",square:"square markers",diamond:"diamond markers",none:"no markers"};
+function look(r,k){var st=r.style||{};return{color:st.color?window.NAChartTheme.named(st.color):window.NAChartTheme.color(k),dash:st.dash||"solid",marker:st.marker||"circle"}}
+// The legend line in words, so a reader never needs the colour: name, units, axis, dash and marker.
+function keyWords(spec,r,k){var l=look(r,k),dual=spec.series.some(function(x){return x.axis==="right"});return r.name+" ("+unitsOf(spec,r)+(dual?", "+(r.axis==="right"?"right":"left")+" axis":"")+"): "+l.dash+" line with "+MARKER_WORD[l.marker]}
 var d3p=null;
 function loadD3(){
   if(window.d3)return Promise.resolve(window.d3);
@@ -40,20 +65,28 @@ function loadD3(){
   });
   return d3p;
 }
+function lookup(r){var m={};r.points.forEach(function(p){m[p.label]=p.value});return m}
 function table(spec){
   var t=el("table","chart-tbl"),cap=el("caption",null,spec.title);t.appendChild(cap);
   var hr=el("tr");hr.appendChild(el("td"));
-  spec.series.forEach(function(s){var h=el("th",null,s.name+" ("+spec.units+")");h.scope="col";hr.appendChild(h)});
+  spec.series.forEach(function(s){var h=el("th",null,s.name+" ("+unitsOf(spec,s)+")");h.scope="col";hr.appendChild(h)});
   var th=el("thead");th.appendChild(hr);t.appendChild(th);
-  var tb=el("tbody");
-  spec.series[0].points.forEach(function(p,i){
+  var tb=el("tbody"),maps=spec.series.map(lookup);
+  refSeries(spec).points.forEach(function(p){
     var r=el("tr"),h=el("th",null,p.label);h.scope="row";r.appendChild(h);
-    spec.series.forEach(function(s){r.appendChild(el("td",null,fmt(spec,s.points[i].value)))});
+    spec.series.forEach(function(s,k){var v=maps[k][p.label];r.appendChild(el("td",null,v===undefined?"no figure":fmtU(unitsOf(spec,s),v)))});
     tb.appendChild(r);
   });
   t.appendChild(tb);return t;
 }
+// One visually hidden list per series for screen readers (the picture itself is one image with the finding as its label).
+function srList(spec){
+  var ul=el("ul","sr-only");
+  spec.series.forEach(function(s){ul.appendChild(el("li",null,s.name+", in "+unitsOf(spec,s)+": "+s.points.map(function(p){return p.label+" "+fmtU(unitsOf(spec,s),p.value)}).join("; ")+"."))});
+  return ul;
+}
 function draw(d3,host,spec){
+  if(spec.type==="line"&&styled(spec)){host.appendChild(lineSvg(d3,spec));return}
   var T=window.NAChartTheme,W=T.width,H=T.height,m=T.margin,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
   var labels=spec.series[0].points.map(function(p){return p.label});
   var stacked=spec.type==="stacked_bar",line=spec.type==="line";
@@ -84,14 +117,72 @@ function draw(d3,host,spec){
     });
   }
 }
+function svgEl(tag,attrs,txt){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)if(Object.prototype.hasOwnProperty.call(attrs,k)&&attrs[k]!=null)e.setAttribute(k,String(attrs[k]));if(txt!=null)e.textContent=txt;return e}
+function r1(n){return Math.round(n*10)/10}
+// A line chart with an optional right axis (issue #190): left values in the chart units, right values in the right series' own units, each axis from zero.
+// D3 provides the scales and the line paths; the elements are made directly so the same function runs under a test DOM. Returns the <svg>.
+function lineSvg(d3,spec){
+  var T=window.NAChartTheme,D=T.dual,W=D.width,H=D.height,m=D.margin,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
+  var ref=labelsOf(refSeries(spec));
+  var left=spec.series.filter(function(s){return s.axis!=="right"}),right=spec.series.filter(function(s){return s.axis==="right"});
+  var maxOf=function(ss){return d3.max(ss,function(s){return d3.max(s.points,function(p){return p.value})})||1};
+  var yL=d3.scaleLinear().domain([0,maxOf(left)]).nice().range([ih,0]);
+  var yR=right.length?d3.scaleLinear().domain([0,maxOf(right)]).nice().range([ih,0]):null;
+  var rUnits=right.length?unitsOf(spec,right[0]):null;
+  var x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"img","aria-label":spec.title,"class":"chart-svg",style:"max-width:"+W+"px;height:auto"});
+  var g=svgEl("g",{transform:"translate("+m.left+","+m.top+")"});svg.appendChild(g);
+  var tickStyle="fill:"+T.muted+";font-size:"+T.fontSize+"px";
+  var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
+  yL.ticks(5).forEach(function(t){
+    axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:r1(yL(t)),y2:r1(yL(t)),style:"stroke:"+T.grid}));
+    axes.appendChild(svgEl("text",{x:-8,y:r1(yL(t)),dy:"0.32em","text-anchor":"end",style:tickStyle},T.axisFormat(spec.units,t)));
+  });
+  if(yR)yR.ticks(5).forEach(function(t){if(Math.floor(t)!==t&&!/dollar/i.test(rUnits))return;axes.appendChild(svgEl("text",{x:iw+8,y:r1(yR(t)),dy:"0.32em","text-anchor":"start",style:tickStyle},T.axisFormat(rUnits,t)))});
+  axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:ih,y2:ih,style:"stroke:"+T.muted}));
+  T.tickLabels(ref).forEach(function(l){axes.appendChild(svgEl("text",{x:r1(x(l)),y:ih+20,"text-anchor":"middle",style:tickStyle},l))});
+  var titleStyle="fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600";
+  axes.appendChild(svgEl("text",{x:-m.left+4,y:-14,"text-anchor":"start",style:titleStyle,"class":"chart-axis-title"},left.map(function(s){return s.name}).join(", ")+" ("+spec.units+")"+(right.length?", left axis":"")));
+  if(right.length)axes.appendChild(svgEl("text",{x:iw+m.right-4,y:-14,"text-anchor":"end",style:titleStyle,"class":"chart-axis-title"},right.map(function(s){return s.name}).join(", ")+" ("+rUnits+"), right axis"));
+  var ends=[];
+  spec.series.forEach(function(s,k){
+    var y=s.axis==="right"?yR:yL,l=look(s,k),u=unitsOf(spec,s),vals=lookup(s);
+    var pts=ref.map(function(lab){return vals[lab]===undefined?null:[r1(x(lab)),r1(y(vals[lab]))]});
+    var gs=svgEl("g",{"class":"chart-series"});g.appendChild(gs);
+    gs.appendChild(svgEl("path",{d:d3.line().defined(function(p){return p!==null})(pts),fill:"none","stroke-width":2.5,"stroke-linejoin":"round",style:"stroke:"+l.color+(T.dash[l.dash]?";stroke-dasharray:"+T.dash[l.dash]:"")}));
+    s.points.forEach(function(p){
+      var px=r1(x(p.label)),py=r1(y(p.value)),fill="fill:"+l.color+";stroke:var(--bg);stroke-width:1",mk;
+      if(l.marker==="none")return;
+      if(l.marker==="square")mk=svgEl("rect",{x:r1(px-4),y:r1(py-4),width:8,height:8,style:fill});
+      else if(l.marker==="diamond")mk=svgEl("path",{d:"M"+px+","+r1(py-5.5)+"L"+r1(px+5.5)+","+py+"L"+px+","+r1(py+5.5)+"L"+r1(px-5.5)+","+py+"Z",style:fill});
+      else mk=svgEl("circle",{cx:px,cy:py,r:4,style:fill});
+      mk.appendChild(svgEl("title",{},s.name+", "+p.label+": "+fmtU(u,p.value)));
+      gs.appendChild(mk);
+    });
+    var last=s.points[s.points.length-1];
+    ends.push({s:s,color:l.color,x:r1(x(last.label)),y:r1(y(last.value)),text:s.name+" "+T.shortFormat(u,last.value)});
+  });
+  // direct end labels: above the higher line's last point, below the lower one's, never on top of each other
+  ends.sort(function(a,b){return a.y-b.y});
+  ends.forEach(function(e,i){
+    var ly=i===0?e.y-10:Math.max(e.y+18,ends[i-1].ly+14);e.ly=ly;
+    g.appendChild(svgEl("text",{x:e.x,y:r1(ly),"text-anchor":"end","class":"chart-end",style:"fill:"+e.color+";font-size:"+T.fontSize+"px;font-weight:600"},e.text));
+  });
+  return svg;
+}
 // Builds the figure at once (title, plot area, legend, numbers table, source) and draws the picture when D3 arrives; if D3 cannot load the table stays and opens.
 function render(spec){
   var bad=check(spec);
   if(bad){if(window.console)console.warn("chart refused: "+bad);return el("p","meta chart-err","The chart could not be shown.")}
-  var fig=el("figure","chart");
+  var fig=el("figure","chart"),keyed=styled(spec);
   fig.appendChild(el("figcaption","chart-title",spec.title));
   var plot=el("div","chart-plot");fig.appendChild(plot);
-  if(spec.series.length>1){
+  if(keyed){
+    var kl=el("ul","chart-legend chart-keyed");
+    spec.series.forEach(function(s,k){var l=look(s,k),li=el("li"),key=el("span","chart-key dash-"+l.dash+" mark-"+l.marker);key.style.color=l.color;key.setAttribute("aria-hidden","true");li.appendChild(key);li.appendChild(document.createTextNode(" "+keyWords(spec,s,k)));kl.appendChild(li)});
+    fig.appendChild(kl);
+    fig.appendChild(srList(spec));
+  }else if(spec.series.length>1){
     var lg=el("ul","chart-legend");
     spec.series.forEach(function(s,k){var li=el("li");var sw=el("span","chart-sw");sw.style.background=window.NAChartTheme.color(k);sw.setAttribute("aria-hidden","true");li.appendChild(sw);li.appendChild(document.createTextNode(" "+s.name));lg.appendChild(li)});
     fig.appendChild(lg);
@@ -105,5 +196,5 @@ function render(spec){
   loadD3().then(function(d3){draw(d3,plot,spec)}).catch(function(){plot.textContent="The picture could not load, so the numbers are in the table below.";det.open=true});
   return fig;
 }
-window.NAChart={check:check,render:render,format:fmt};
+window.NAChart={check:check,render:render,format:fmt,lineSvg:lineSvg,keyWords:keyWords};
 })();
