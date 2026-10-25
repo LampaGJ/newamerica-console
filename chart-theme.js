@@ -7,6 +7,13 @@ var T=window.NAChartTheme={
   width:640,height:320,margin:{top:12,right:16,bottom:44,left:64},radius:2,fontSize:12,maxXLabels:10,
   // the line chart with a right axis (issue #190): room above for the axis titles and on the right for the second axis
   dual:{width:640,height:340,margin:{top:30,right:60,bottom:34,left:64}},
+  // phone width (under 480 pixels): a smaller viewBox so text stays about 12 pixels on screen instead of shrinking with the plot
+  narrow:{width:360,height:300,margin:{top:16,right:14,bottom:38,left:50}},
+  narrowDual:{width:360,height:340,margin:{top:30,right:46,bottom:34,left:50}},
+  // the box a mark is drawn in: wide (640 pixels of picture) or narrow (360)
+  box:function(narrow){var b=narrow?T.narrow:{width:T.width,height:T.height,margin:T.margin};return{W:b.width,H:b.height,m:b.margin,iw:b.width-b.margin.left-b.margin.right,ih:b.height-b.margin.top-b.margin.bottom}},
+  // the focus ring colour (3:1 against the page in both themes) and the marker and hatch pattern words, once
+  focus:"var(--chart-focus)",
   color:function(i){return"var(--chart-"+(i%6+1)+")"},
   // a spec's named colour hint as its token; each token has a light and a dark value chosen for contrast on that theme's background
   named:function(c){return NAMED[c]?"var(--chart-"+c+")":"var(--chart-1)"},

@@ -14,7 +14,10 @@ function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localSt
   var tok=p.get('token')||q.get('token'), srv=p.get('server')||q.get('server');
   if(tok)ls('na.token',tok.trim());
   if(srv)ls('na.server',srv.trim());
-  if(tok||srv){try{history.replaceState(null,'',location.pathname)}catch(e){}}
+  // A shared chart link keeps its #plan= key: only token and server are removed from the fragment (issue #216).
+  p.delete('token');p.delete('server');
+  var rest=p.toString();
+  if(tok||srv){try{history.replaceState(null,'',location.pathname+(rest?'#'+rest:''))}catch(e){}}
 })();
 var DEFAULT_SERVER='https://macstudio.tarpan-woodpecker.ts.net/newamerica';
 // The token lives only in localStorage (set by #token=); the page ships with none and has no UI for it.
@@ -892,7 +895,92 @@ function addChart(d,card){
   if(!d||d.chart===undefined||d.chart===null||!card||!window.NAChart)return;
   var f=window.NAChart.render(d.chart);
   card.insertBefore(f,card.querySelector(".rate"));
+  // Next charts to try (issue #218): each chip asks chart_answer for its plan, the same way a shared link does, so the cache and the limits apply.
+  var chips=chartChips(d.suggestions,function(s){openShared({plan:s.plan},s.label)});
+  if(chips)card.insertBefore(chips,card.querySelector(".rate"));
 }
+//#gallery-start
+// One chip for each suggested chart under a chart. Its link is built by NAChartExport.shareLink from a fresh fragment that holds the plan alone (never a token or a server);
+// a plain click opens the chart in place through onOpen (a chart_answer call, so the cache and the limits apply), a modified or middle click follows the link. No question text is involved.
+// A plan too long for a link still gets a button.
+function chartChips(list,onOpen){
+  if(!Array.isArray(list)||!list.length)return null;
+  var X=window.NAChartExport,box=el("div","chart-chips");box.setAttribute("role","group");box.setAttribute("aria-label","Charts you could try next");
+  list.forEach(function(s){
+    if(!s||typeof s.label!=="string"||!s.label||!s.plan||typeof s.plan!=="object")return;
+    var href=X?X.shareLink(location.origin,location.pathname,s.plan):null,b=href?el("a","chart-chip",s.label):el("button","chart-chip",s.label);
+    if(href)b.href=href;else b.type="button";
+    b.onclick=function(ev){if(ev&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button>0))return;if(ev)ev.preventDefault();onOpen(s)};
+    box.appendChild(b);
+  });
+  return box.children.length?box:null;
+}
+// The chart ideas: groups of example charts. Each entry is an anchor whose link NAChartExport.shareLink builds from a fresh fragment that holds the plan alone (never a token or a server);
+// a plain click opens the chart in place through onOpen, a modified click or a middle click follows the link.
+function galleryList(groups,onOpen){
+  var X=window.NAChartExport,root=el("div","chart-gallery-groups");
+  if(!X||!Array.isArray(groups))return root;
+  groups.forEach(function(g){
+    if(!g||typeof g.name!=="string"||!Array.isArray(g.entries))return;
+    var ul=el("ul",null);
+    g.entries.forEach(function(e){
+      if(!e||typeof e.question!=="string"||!e.plan||typeof e.plan!=="object")return;
+      var href=X.shareLink(location.origin,location.pathname,e.plan);
+      if(!href)return;
+      var a=el("a",null,e.question),li=el("li",null);a.href=href;
+      a.onclick=function(ev){if(ev&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button>0))return;if(ev)ev.preventDefault();onOpen(e)};
+      li.appendChild(a);ul.appendChild(li);
+    });
+    if(!ul.children.length)return;
+    root.appendChild(el("h3",null,g.name));root.appendChild(ul);
+  });
+  return root;
+}
+//#gallery-end
+// A chart opened from a shared or pasted link (issue #216): the same chart_answer pipeline as a question, called with the link's plan. If the figures changed since the link was made, a plain note says so.
+async function openShared(shared,title){
+  var t=turn(title||"Open a shared chart"),out=t.body;
+  t.stage.textContent="Drawing the chart from the link...";
+  try{
+    var r=await tool("chart_answer",{plan:shared.plan}),d=r.data||{},card=el("article","card");
+    t.stage.textContent="";
+    if(d.kind==="chart_answer"&&d.chart){
+      card.appendChild(md(String(r.text||"").split("\n\n")[0],{}));
+      var note=window.NAChartExport&&window.NAChartExport.stampNote(shared.dataStamp,d.chart);
+      if(note)card.appendChild(el("p","meta chart-stale",note));
+      out.appendChild(card);addChart(d,card);
+    }else{card.appendChild(md(String(r.text||"That chart could not be drawn."),{}));out.appendChild(card)}
+    settle(t,"done");
+  }catch(e){
+    e=netErr(e);t.stage.textContent="";
+    out.appendChild(el("p","meta",e.kind==="srv"&&/not valid/i.test(e.msg)?"That link could not be read. Check that you copied all of it.":e.msg));settle(t,"error");
+  }
+}
+// The paste box sits under the question box; a page opened on a #plan= link draws that chart at once.
+(function pasteAndOpen(){
+  var X=window.NAChartExport,host=$("paste");
+  if(!X)return;
+  if(host)host.appendChild(X.pasteBox(openShared));
+  var r=X.payloadFromHash(location.hash||"");
+  if(!r)return;
+  if(r.ok)openShared(r);else $("out").appendChild(el("p","meta",r.message));
+})();
+// The Chart ideas button shows or hides the gallery; its entries come from the chart_gallery tool once, and one click opens a ready chart (issue #218).
+(function chartIdeas(){
+  var btn=$("ideas"),host=$("gallery"),loaded=false;
+  if(!btn||!host)return;
+  function close(){host.hidden=true;btn.setAttribute("aria-expanded","false")}
+  btn.onclick=async function(){
+    if(!host.hidden){close();return}
+    host.hidden=false;btn.setAttribute("aria-expanded","true");
+    if(loaded)return;
+    host.textContent="";host.appendChild(el("p","meta","Loading chart ideas..."));
+    try{
+      var r=await tool("chart_gallery",{}),list=galleryList((r.data||{}).groups,function(e){close();openShared({plan:e.plan},e.question)});
+      host.textContent="";host.appendChild(el("h2",null,"Chart ideas"));host.appendChild(el("p","meta","Pick one to open a ready chart."));host.appendChild(list);loaded=true;
+    }catch(e){e=netErr(e);host.textContent="";host.appendChild(el("p","meta",e.msg))}
+  };
+})();
 async function run(){
   var q=$("q").value.trim();if(!q)return;
   if(busy){busy.stage.textContent="Still working on: "+busy.q;return}
