@@ -1,11 +1,15 @@
 // @pocTriage: browser-side chart export builders for the console (issue #216, docs/plans/chart-pipeline.spec.md section chart-share-export); they only format a specification the server already parsed, read no file and write no data, not an ad-hoc data script.
-// Keep, share and download a chart. The pure builders at the top take plain values: they never read the page address, storage or the document, so the same text
+// Keep, share and download a chart (issue #226: a picture can be saved as SVG, PNG or JPG at a size the visitor picks; the chart is laid out again at that size, not stretched). The pure builders at the top take plain values: they never read the page address, storage or the document, so the same text
 // is built on the screen, in the picture's caption, in the SVG description and in the CSV header (the note lines come from NAChart.noteLines, chart.js), and a test runs them in Node.
-// The glue at the bottom (mount, pasteBox, the downloads) is the only part that touches the page. A link made here carries a fresh fragment holding the chart's plan and nothing else:
+// The glue at the bottom (mount, the downloads) is the only part that touches the page. A link made here carries a fresh fragment holding the chart's plan and nothing else:
 // never a token or a server, never the visitor's question or the plan's free-text reason. console.js reads #token= from the same fragment and removes only that key.
 (function(){
 'use strict';
 var MAX=4000,MAX_ENCODED=5400,MAX_PASTE=20000;
+// the plain system font stack a saved picture uses, so it looks the same on any machine
+var FONT="system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif";
+// a saved picture is between 320 and 8192 pixels wide; a PNG or JPG is also kept to 16,000,000 pixels in all (width x height), because iPhone Safari cannot draw a larger canvas
+var MIN_WIDTH=320,MAX_WIDTH=8192,MAX_RASTER_PIXELS=16000000;
 var TOO_LONG="That link is too long to be one of ours.",UNREADABLE="That link could not be read. Check that you copied all of it.";
 function chart(){return window.NAChart}
 function plain(t){return String(t).replace(/\s+/g," ").trim()}
@@ -134,15 +138,22 @@ function svgMetaText(spec){
   return{title:plain(spec.title),desc:chart().noteLines(spec).map(plain).join(" "),metadata:meta.join(". ")+"."};
 }
 // The live picture's markup as a stand-alone file: every CSS variable colour replaced by its value (getVar gives the value of a name such as --chart-1), and the title, description and metadata added.
-function svgDocument(markup,spec,getVar){
+// With size ({width, height} in pixels) the file is also made to open on its own: it gets that size, a plain system font, a background of the page colour and the few style rules the page's
+// stylesheet gave the text, so nothing outside the file is needed. The viewBox stays, so it is still a picture that scales without loss.
+function svgDocument(markup,spec,getVar,size){
   var m=svgMetaText(spec),body=String(markup).replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)/g,function(all,name,fallback){
     var v=getVar(name);return v&&String(v).trim()?String(v).trim():(fallback&&fallback.trim()?fallback.trim():"#000");
   });
   var open=/<svg\b[^>]*>/.exec(body);
   if(!open)return body;
-  var tag=open[0];
+  var tag=open[0],extra="";
   if(!/\sxmlns=/.test(tag))tag=tag.replace(/^<svg/,'<svg xmlns="http://www.w3.org/2000/svg"');
-  return body.slice(0,open.index)+tag+"<title>"+xml(m.title)+"</title><desc>"+xml(m.desc)+"</desc><metadata>"+xml(m.metadata)+"</metadata>"+body.slice(open.index+open[0].length);
+  if(size){
+    var bg=String(getVar("--bg")||"").trim()||"#fff",vb=/viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(tag);
+    tag=tag.replace(/\swidth="[^"]*"/,"").replace(/\sheight="[^"]*"/,"").replace(/\sstyle="[^"]*"/,"").replace(/\sclass="[^"]*"/,"").replace(/\srole="[^"]*"/,' role="img"').replace(/^<svg/,'<svg width="'+size.width+'" height="'+size.height+'" font-family="'+FONT+'"');
+    extra="<style>.chart-end{paint-order:stroke;stroke:"+bg+";stroke-width:3px}.chart-label,.chart-xtick,.chart-vtick{font-variant-numeric:tabular-nums}</style>"+(vb?'<rect x="0" y="0" width="'+vb[1]+'" height="'+vb[2]+'" fill="'+bg+'"/>':"");
+  }
+  return body.slice(0,open.index)+tag+"<title>"+xml(m.title)+"</title><desc>"+xml(m.desc)+"</desc><metadata>"+xml(m.metadata)+"</metadata>"+extra+body.slice(open.index+open[0].length);
 }
 // The caption under a PNG: the title, then the same note lines the screen shows.
 function captionLines(spec){return[plain(spec.title)].concat(chart().noteLines(spec).map(plain))}
@@ -156,6 +167,41 @@ function wrapLines(measure,lines,width){
   });
   return out;
 }
+// ---- Size: what width a saved picture gets, and how the chart is laid out for it (pure; the page glue below calls them) ----
+// A typed width: whole pixels from 320 to 8192, else a plain message.
+function parseWidth(text){
+  var t=String(text).trim(),msg="Enter a width between "+MIN_WIDTH+" and "+MAX_WIDTH+" pixels.";
+  if(!/^\d{1,5}$/.test(t))return{ok:false,message:msg};
+  var n=+t;
+  return n<MIN_WIDTH||n>MAX_WIDTH?{ok:false,message:msg}:{ok:true,width:n};
+}
+// The output width of a size choice: "1", "2" or "4" times the width on the screen (never past 8192), or "custom" with the typed text.
+function requestedWidth(choice,screenWidth,customText){
+  if(choice==="custom")return parseWidth(customText);
+  var k=choice==="2"?2:choice==="4"?4:1,w=Math.round(k*screenWidth);
+  return w>MAX_WIDTH?{ok:true,width:MAX_WIDTH,message:"That is wider than the largest size, so the picture is "+MAX_WIDTH+" pixels wide."}:{ok:true,width:w};
+}
+// The chart is laid out at layoutWidth and then scaled by scale to the output width. A larger picture keeps the layout of the screen and scales it, so text is the same size relative to the chart;
+// a smaller one is laid out again at its own width, so its labels are thinned to fit and text stays 12 pixels.
+function layoutPlan(screenWidth,outWidth){var L=Math.min(screenWidth,outWidth);return{layoutWidth:L,scale:outWidth/L,width:outWidth}}
+// The pixel size of a PNG or JPG: the layout is layoutWidth x layoutHeight (the caption included); when width x height would pass 16,000,000 pixels the width is lowered to fit and a plain message says so.
+function rasterSize(layoutWidth,layoutHeight,outWidth){
+  var h=Math.ceil(outWidth/layoutWidth*layoutHeight);
+  if(outWidth*h<=MAX_RASTER_PIXELS)return{width:outWidth,height:h,capped:false};
+  var w=Math.floor(Math.sqrt(MAX_RASTER_PIXELS*layoutWidth/layoutHeight));
+  while(w>1&&w*Math.ceil(w/layoutWidth*layoutHeight)>MAX_RASTER_PIXELS)w--;
+  return{width:w,height:Math.ceil(w/layoutWidth*layoutHeight),capped:true,message:"That size is too large for the browser to draw, so the picture is "+w+" pixels wide."};
+}
+// Several pictures (small panels) stacked into one file: parts = [{title, markup, width, height}] in order; every part keeps its own viewBox.
+function stackSvgs(parts,width){
+  var y=0,out=[];
+  parts.forEach(function(p){
+    if(p.title){out.push('<text x="4" y="'+(y+13)+'" style="fill:var(--chart-text);font-size:12px;font-weight:600">'+xml(p.title)+'</text>');y+=20}
+    out.push(String(p.markup).replace(/^<svg\b[^>]*>/,'<svg x="0" y="'+y+'" width="'+p.width+'" height="'+p.height+'" viewBox="0 0 '+p.width+' '+p.height+'">'));
+    y+=p.height+8;
+  });
+  return{markup:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' '+y+'" width="100%" role="group">'+out.join("")+'</svg>',height:y};
+}
 // ---- The page glue: the only part that touches the document, the clipboard and the download. Tests do not run it; the PNG draw is a manual check. ----
 function fileStem(spec){return(spec.planHash?spec.planHash.slice(0,8)+"-":"")+plain(spec.title).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,48)}
 function download(name,type,data){
@@ -163,31 +209,96 @@ function download(name,type,data){
   a.href=url;a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url)},1000);
 }
-function liveSvg(fig){var s=fig.querySelector&&fig.querySelector(".chart-plot svg");return s||null}
-function svgFile(fig,spec){
-  var svg=liveSvg(fig);if(!svg)return null;
-  var css=getComputedStyle(document.documentElement);
-  return svgDocument(new XMLSerializer().serializeToString(svg),spec,function(n){return css.getPropertyValue(n)});
+function plotOf(fig){return fig.querySelector?fig.querySelector(".chart-plot"):null}
+// the width of the picture on the screen, in pixels (an unmeasured one counts as the default width)
+function screenWidth(fig){var p=plotOf(fig);return window.NAChartTheme.widthOf(p&&p.clientWidth)}
+// Lays the chart out again at width and gives back its markup and size: {markup, width, height}, or null when it cannot be drawn. A chart of several panels becomes one stacked picture.
+function laidOut(spec,width,done){
+  var N=chart();
+  N.loadD3().then(function(d3){
+    var host=document.createElement("div");
+    return Promise.resolve(N.draw(d3,host,spec,{width:width})).then(function(){return host});
+  }).then(function(host){
+    var svgs=[].slice.call(host.querySelectorAll("svg")),titles=[].slice.call(host.querySelectorAll(".chart-panel-title")),ser=new XMLSerializer();
+    if(!svgs.length)return done(null);
+    var parts=svgs.map(function(v,i){
+      var vb=/^0 0 ([\d.]+) ([\d.]+)$/.exec(v.getAttribute("viewBox")||"")||[];
+      return{title:svgs.length>1&&titles[i]?titles[i].textContent:"",markup:ser.serializeToString(v),width:+vb[1]||width,height:+vb[2]||0};
+    });
+    if(parts.length===1)return done({markup:parts[0].markup,width:parts[0].width,height:parts[0].height});
+    var st=stackSvgs(parts,width);done({markup:st.markup,width:width,height:st.height});
+  }).catch(function(){done(null)});
 }
-function pngFile(fig,spec,done){
-  var file=svgFile(fig,spec);if(!file)return done(null);
-  var css=getComputedStyle(document.documentElement),vb=(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/.exec(file)||[]),w=+vb[1]||640,h=+vb[2]||340,k=2,pad=16*k;
-  var img=new Image();
-  img.onload=function(){
-    var cv=document.createElement("canvas"),ctx=cv.getContext("2d"),font=(13*k)+"px system-ui, sans-serif",lines;
-    cv.width=w*k;ctx.font=font;
-    lines=wrapLines(function(t){return ctx.measureText(t).width},captionLines(spec),cv.width-2*pad);
-    var lh=18*k;cv.height=h*k+pad+lines.length*lh+pad;
-    ctx.fillStyle=css.getPropertyValue("--bg").trim()||"#fff";ctx.fillRect(0,0,cv.width,cv.height);
-    ctx.drawImage(img,0,0,w*k,h*k);
-    ctx.fillStyle=css.getPropertyValue("--chart-text").trim()||"#000";ctx.textBaseline="top";
-    lines.forEach(function(l,i){ctx.font=i===0?"bold "+font:font;ctx.fillText(l,pad,h*k+pad+i*lh)});
-    cv.toBlob(function(b){done(b)},"image/png");
-  };
-  img.onerror=function(){done(null)};
-  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(file);
+function cssValue(name){return getComputedStyle(document.documentElement).getPropertyValue(name)}
+// The standalone file for a laid-out picture at an output size.
+function fileOf(lay,spec,outWidth){return svgDocument(lay.markup,spec,cssValue,{width:outWidth,height:Math.round(lay.height*outWidth/lay.width)})}
+function svgFile(fig,spec,outWidth,done){
+  var plan=layoutPlan(screenWidth(fig),outWidth);
+  laidOut(spec,plan.layoutWidth,function(lay){done(lay?fileOf(lay,spec,outWidth):null)});
+}
+// A PNG or JPG: the chart laid out at the layout width, drawn at the scale to the output width, with the caption under it. done(blob, message, width) where message is set when the size was lowered, and width is the width it was made at.
+function rasterFile(fig,spec,type,outWidth,done){
+  var plan=layoutPlan(screenWidth(fig),outWidth),L=plan.layoutWidth;
+  laidOut(spec,L,function(lay){
+    if(!lay)return done(null);
+    var pad=16,lh=18,cv=document.createElement("canvas"),ctx=cv.getContext("2d");
+    if(!ctx)return done(null);
+    ctx.font="13px "+FONT;
+    var lines0=wrapLines(function(t){return ctx.measureText(t).width},captionLines(spec),L-2*pad),total=lay.height+pad+lines0.length*lh+pad,size=rasterSize(L,total,outWidth),k=size.width/L;
+    var file=svgDocument(lay.markup,spec,cssValue,{width:size.width,height:Math.round(lay.height*k)}),img=new Image();
+    img.onload=function(){
+      var font=(13*k)+"px "+FONT,lines;
+      cv.width=size.width;ctx.font=font;
+      lines=wrapLines(function(t){return ctx.measureText(t).width},captionLines(spec),cv.width-2*pad*k);
+      cv.height=Math.ceil(lay.height*k+pad*k+lines.length*lh*k+pad*k);
+      ctx.fillStyle=cssValue("--bg").trim()||"#fff";ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.drawImage(img,0,0,size.width,Math.round(lay.height*k));
+      ctx.fillStyle=cssValue("--chart-text").trim()||"#000";ctx.textBaseline="top";
+      lines.forEach(function(l,i){ctx.font=i===0?"bold "+font:font;ctx.fillText(l,pad*k,lay.height*k+pad*k+i*lh*k)});
+      cv.toBlob(function(b){done(b,size.message,size.width)},type,type==="image/jpeg"?0.92:undefined);
+    };
+    img.onerror=function(){done(null)};
+    img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(file);
+  });
 }
 function button(label,onclick){var b=document.createElement("button");b.type="button";b.className="chart-btn";b.textContent=label;b.onclick=onclick;return b}
+function option(value,label){var o=document.createElement("option");o.value=value;o.textContent=label;return o}
+// The download group: a size, then one button for each format. The sizes are 1, 2 and 4 times the picture on the screen, or a width typed in pixels.
+function downloadGroup(fig,spec,say){
+  var box=document.createElement("div"),lead=document.createElement("span"),lab=document.createElement("label"),pick=document.createElement("select"),
+    wl=document.createElement("label"),typed=document.createElement("input");
+  box.className="chart-download";box.setAttribute("role","group");box.setAttribute("aria-label","Download picture");
+  lead.className="chart-download-lead";lead.textContent="Download picture";
+  lab.className="chart-size";lab.appendChild(document.createTextNode("Size "));
+  var opts=[option("1",""),option("2",""),option("4",""),option("custom","Choose a width")];
+  opts.forEach(function(o){pick.appendChild(o)});pick.value="1";lab.appendChild(pick);
+  wl.className="chart-size";wl.hidden=true;wl.appendChild(document.createTextNode("Width in pixels "));
+  typed.type="number";typed.min=String(MIN_WIDTH);typed.max=String(MAX_WIDTH);typed.step="1";typed.value="1200";typed.className="chart-width";wl.appendChild(typed);
+  function words(){
+    var w=screenWidth(fig),n=function(k){return Math.min(MAX_WIDTH,Math.round(k*w))};
+    opts[0].textContent="Same as on screen ("+n(1)+" pixels wide)";opts[1].textContent="Twice as large ("+n(2)+" pixels wide)";opts[2].textContent="Four times as large ("+n(4)+" pixels wide)";
+  }
+  words();
+  pick.onfocus=words;pick.onpointerdown=words;
+  pick.onchange=function(){wl.hidden=pick.value!=="custom";typed.setAttribute("aria-invalid","false");say("")};
+  function go(format){
+    var want=requestedWidth(pick.value,screenWidth(fig),typed.value);
+    typed.setAttribute("aria-invalid",want.ok?"false":"true");
+    if(!want.ok){say(want.message);return}
+    say(want.message||"");
+    var stem=fileStem(spec)+"-"+want.width+"px";
+    if(format==="svg")return svgFile(fig,spec,want.width,function(f){if(!f){say("The picture is not ready yet.");return}download(stem+".svg","image/svg+xml",f)});
+    var type=format==="png"?"image/png":"image/jpeg";
+    rasterFile(fig,spec,type,want.width,function(b,note,made){
+      if(!b){say("The picture could not be made at this size. Try a smaller size.");return}
+      if(note)say(note);
+      download(fileStem(spec)+"-"+(made||want.width)+"px."+format,type,b);
+    });
+  }
+  box.appendChild(lead);box.appendChild(lab);box.appendChild(wl);
+  box.appendChild(button("SVG",function(){go("svg")}));box.appendChild(button("PNG",function(){go("png")}));box.appendChild(button("JPG",function(){go("jpg")}));
+  return box;
+}
 // The controls under one figure.
 function mount(fig,spec){
   var bar=document.createElement("div"),status=document.createElement("p");
@@ -199,24 +310,9 @@ function mount(fig,spec){
     if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(link).then(function(){say("Link copied.")},function(){say("Copy this link: "+link)});
     else say("Copy this link: "+link);
   }));
-  bar.appendChild(button("Download picture (SVG)",function(){var f=svgFile(fig,spec);if(!f){say("The picture is not ready yet.");return}download(fileStem(spec)+".svg","image/svg+xml",f)}));
-  bar.appendChild(button("Download picture (PNG)",function(){pngFile(fig,spec,function(b){if(!b){say("The picture is not ready yet.");return}download(fileStem(spec)+".png","image/png",b)})}));
+  bar.appendChild(downloadGroup(fig,spec,say));
   bar.appendChild(button("Download numbers (CSV)",function(){download(fileStem(spec)+".csv","text/csv;charset=utf-8",csvText(spec))}));
   fig.appendChild(bar);fig.appendChild(status);
 }
-// The paste box: onOpen({plan, dataStamp}) is called with a link that read; anything else shows its plain message and draws nothing.
-function pasteBox(onOpen){
-  var form=document.createElement("form"),label=document.createElement("label"),input=document.createElement("input"),go=document.createElement("button"),msg=document.createElement("p");
-  form.className="chart-paste";label.className="sr";label.textContent="Paste a chart link";input.type="text";input.autocomplete="off";input.setAttribute("aria-label","Paste a chart link");
-  go.type="submit";go.textContent="Open this chart";msg.className="meta";msg.setAttribute("role","status");
-  form.appendChild(label);form.appendChild(input);form.appendChild(go);form.appendChild(msg);
-  form.onsubmit=function(ev){
-    ev.preventDefault();
-    var r=payloadFromPaste(input.value);
-    if(!r.ok){msg.textContent=r.message;return}
-    msg.textContent="";input.value="";onOpen(r);
-  };
-  return form;
-}
-window.NAChartExport={csvText:csvText,svgMetaText:svgMetaText,svgDocument:svgDocument,captionLines:captionLines,wrapLines:wrapLines,shareLink:shareLink,payloadFromHash:payloadFromHash,payloadFromPaste:payloadFromPaste,stampNote:stampNote,mount:mount,pasteBox:pasteBox,MAX_SHARED_CHARS:MAX};
+window.NAChartExport={parseWidth:parseWidth,requestedWidth:requestedWidth,layoutPlan:layoutPlan,rasterSize:rasterSize,stackSvgs:stackSvgs,MIN_WIDTH:MIN_WIDTH,MAX_WIDTH:MAX_WIDTH,MAX_RASTER_PIXELS:MAX_RASTER_PIXELS,csvText:csvText,svgMetaText:svgMetaText,svgDocument:svgDocument,captionLines:captionLines,wrapLines:wrapLines,shareLink:shareLink,payloadFromHash:payloadFromHash,payloadFromPaste:payloadFromPaste,stampNote:stampNote,mount:mount,MAX_SHARED_CHARS:MAX};
 })();

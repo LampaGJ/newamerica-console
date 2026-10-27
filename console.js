@@ -1,9 +1,12 @@
 (function(){
 'use strict';
 var $=function(id){return document.getElementById(id)};
-var TIERS={1:'Authoritative',2:'Analysis',3:'Supporting',4:'Peripheral'};
+// The card renderers live in cards-*.js (issue #88, D8) and share window.NACards; this file is the page: the ask form, the server calls, sign-in, history and scrolling.
+var C=window.NACards,el=C.el,md=C.md,chips=C.chips,renderCorpus=C.renderCorpus,REDUCED=C.REDUCED;
 var PROTO='2025-06-18';
 var sess=null,rid=1,busy=null,connKey='';
+// GitHub sign-in (issue #100): who is the signed-in login (null when nobody), and needSignIn once the server has answered 401 to a request that carried no token.
+var who=null,needSignIn=false;
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||'';localStorage.setItem(k,v)}catch(e){return ''}}
 // Maintainer only: a link may carry a token (and server) in the URL, preferably the fragment (#token=...), which the
 // browser never sends to GitHub Pages or any log. It is stored, sent as a bearer, never shown, and removed
@@ -23,9 +26,6 @@ var DEFAULT_SERVER='https://macstudio.tarpan-woodpecker.ts.net/newamerica';
 // The token lives only in localStorage (set by #token=); the page ships with none and has no UI for it.
 function token(){return ls("na.token")||null}
 function base(){return (ls('na.server')||DEFAULT_SERVER).trim().replace(/\/+$/,'')}
-function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
-function safeUrl(u){return /^https?:\/\//i.test(u||'')?u:null}
-function link(txt,u){var h=safeUrl(u);if(!h)return document.createTextNode(txt);var a=el('a',null,txt);a.href=h;a.target='_blank';a.rel='noopener noreferrer';return a}
 
 function netErr(e){
   if(e&&e.kind)return e;
@@ -38,7 +38,8 @@ async function http(path,opts){
     // A stale maintainer token is dropped so the next try goes out anonymously.
     var had=!!token();
     if(had){try{localStorage.removeItem('na.token')}catch(e){}sess=null;connKey=''}
-    throw {kind:'auth',msg:had?'The saved maintainer token was rejected and removed. Ask again.':'The server did not accept this request (HTTP '+r.status+').'};
+    if(!had&&r.status===401){needSignIn=true;who=null;sess=null;connKey='';signUi()}
+    throw {kind:'auth',msg:had?'The saved maintainer token was rejected and removed. Ask again.':(r.status===401?'Please sign in with GitHub to ask questions.':'The server did not accept this request (HTTP '+r.status+').')};
   }
   return r;
 }
@@ -127,8 +128,7 @@ function health(){
     d.title='Connected: '+h.documents+' documents ('+h.tier1+' major reports and books), synced '+(h.cursor_age_hours!=null?Number(h.cursor_age_hours).toFixed(1)+' h ago':'(unknown)')+(h.watch_running?', watcher running':', watcher stopped');
     openUntil=typeof h.openAccessUntil==='string'?h.openAccessUntil:null;
     counts=h.counts||null;
-    gate();
-    setOffline(false);
+    return me().then(function(){gate();setOffline(false)});
   }).catch(function(e){d.className='dot off';d.title='Offline: cannot reach '+base();setOffline(true,e&&e.message&&/HTTP/.test(e.message)?e.message:'')})
   .finally(function(){clearTimeout(healthTimer);healthTimer=setTimeout(health,30000)});
 }
@@ -155,7 +155,7 @@ function statsLine(c){
 // Note above the input box: window open, or closed (null or past) with the composer disabled unless a maintainer token is stored.
 function gate(){
   var open=openUntil!==null&&openUntil!==undefined&&Date.parse(openUntil)>Date.now();
-  locked=!open&&!token()&&openUntil!==undefined;
+  locked=!open&&!token()&&!who&&openUntil!==undefined;
   var pv=$('preview'),d=untilLabel(openUntil)||'Oct 31, 2026';
   // while open, the welcome subhead carries the demo dates; the note above the input only says when it has ended
   pv.hidden=!locked;
@@ -163,310 +163,53 @@ function gate(){
   var st=$('stats'),line=statsLine(counts);st.hidden=!line;st.textContent=line;
   var q=$('q'),g=$('go');q.disabled=locked||!!offline;g.disabled=locked||!!offline||!!busy;
   $('ask').querySelector('.box').classList.toggle('off',locked||!!offline);
+  signUi();
+}
+// Who is signed in: the server reads the session cookie (same site as the page; from another site the answer is no one). Never rejects.
+function me(){
+  return fetch(base()+'/auth/me').then(function(r){return r.ok?r.json():null}).then(function(j){who=j&&j.signedIn===true&&typeof j.login==='string'?j.login:null;if(who)needSignIn=false}).catch(function(){who=null});
+}
+// One "Sign in with GitHub" button when nobody is signed in, no token is stored, and the window is closed or the server said 401; "Signed in as" and a sign-out button after.
+function signUi(){
+  var s=$('signin'),w=$('whoami');if(!s||!w)return;
+  var show=!who&&!token()&&(locked||needSignIn);
+  s.hidden=!show;if(show)$('signin-btn').href=base()+'/auth/login';
+  w.hidden=!who;if(who)$('who-name').textContent='Signed in as '+who+'.';
 }
 
-function renderCorpus(c,out){
-  var groups=(c&&c.groups)||[];
-  if(c&&c.window&&c.window.oldest){out.appendChild(el('p','meta','Covers '+c.window.oldest+' to '+c.window.newest+'.'))}
-  if(!groups.length){out.appendChild(el('p',null,'No documents matched. Try different wording.'));return}
-  // Up to two videos that directly cover the question lead the listing (a ranking rule; their tier is unchanged).
-  var lead=[];groups.forEach(function(g){(g.items||[]).forEach(function(it){if(it&&it.direct===true&&lead.length<2)lead.push(it)})});
-  if(lead.length){out.appendChild(el('h2',null,'Videos that cover your question ('+lead.length+')'));lead.forEach(function(it){out.appendChild(item(it))})}
-  groups.slice().sort(function(a,b){return a.tier-b.tier}).forEach(function(g){
-    var items=(g.items||[]).filter(function(it){return lead.indexOf(it)<0});
-    if(!items.length)return;
-    out.appendChild(el('h2',null,(TIERS[g.tier]||'Other')+' ('+items.length+')'));
-    items.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).forEach(function(it){out.appendChild(item(it))});
-  });
-}
-//#rows-start
-function numId(v){return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v&&v>0}
-// "n more like this" for a positive related_count, '' otherwise (the link is then not rendered); "50+" at the cap (RELATED_CAP, src/mcp/hit.ts:93), where n is a floor not a count.
-function moreLabel(n){return typeof n==='number'&&isFinite(n)&&n>=1?(n>=50?'50+':Math.floor(n))+' more like this':''}
-var TAG_KEYS=['types','programs','topics','issues','projects'],TAG_MAX=6;
-// Every taxonomy name on a row, known taxonomies first, then any other key; the row's own program and repeats dropped.
-// Topic and issue tags link to their newamerica.org index page (the server's TERM_LANDING pattern, src/mcp/related-on-site.ts); other tags have none.
-var TAG_LANDING={topics:'https://www.newamerica.org/topics/',issues:'https://www.newamerica.org/issues/'};
-function tagNames(t,skip){return tagItems(t,skip).map(function(x){return x.name})}
-function tagItems(t,skip){
-  var seen={},out=[];t=t&&typeof t==='object'?t:{};
-  Object.keys(t).sort(function(a,b){var i=TAG_KEYS.indexOf(a),j=TAG_KEYS.indexOf(b);return (i<0?99:i)-(j<0?99:j)||(a<b?-1:a>b?1:0)}).forEach(function(k){
-    (Array.isArray(t[k])?t[k]:[]).forEach(function(v){var s=String(typeof v==='string'?v:(v&&(v.name||v.title))||'').trim();var slug=v&&typeof v.slug==='string'&&/^[a-z0-9-]+$/.test(v.slug)?v.slug:'';if(s&&s!==skip&&!seen[s]){seen[s]=1;out.push({name:s,href:TAG_LANDING[k]&&slug?TAG_LANDING[k]+slug+'/':''})}});
-  });
-  return out;
-}
-// Muted second line under a source title: "<Program> · <tag> · <tag> … +n"; the program links to its landing page when known.
-function progRow(o){
-  if(!o)return null;
-  var names=tagItems(o.tags,o.program),r=el('div','prog-row'),first=true;
-  if(!o.program&&!names.length)return null;
-  function sep(){if(!first){var s=el('span','sep',' \u00b7 ');s.setAttribute('aria-hidden','true');r.appendChild(s)}first=false}
-  if(o.program){sep();var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='prog';else{var sp=el('span','prog');sp.appendChild(p);p=sp}r.appendChild(p)}
-  if(o.program&&o.programStatus&&typeof o.programStatus==='object'&&o.programStatus.former===true){sep();r.appendChild(el('span','prog-status','Former program'))}
-  names.slice(0,TAG_MAX).forEach(function(n){sep();var c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);r.appendChild(c)});
-  if(names.length>TAG_MAX){sep();r.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)))}
-  return r;
-}
-// Read / Cite and, when related_count > 0, "n more like this" for a numbered document row; null for social posts, videos and rows without an id.
-function actsRow(o){
-  if(!o||!numId(o.id)||o.kind==='social'||o.kind==='video')return null;
-  var box=el('div','acts'),rb=el('button','primary','Read'),cb=el('button',null,'Cite'),lab=moreLabel(o.related_count),mb=null;
-  rb.type=cb.type='button';box.appendChild(rb);box.appendChild(cb);
-  if(lab){mb=el('button','more-like');mb.type='button';var cnt=lab.slice(0,lab.indexOf(' '));mb.appendChild(el('span','count',cnt));mb.appendChild(document.createTextNode(lab.slice(cnt.length)));box.appendChild(mb)}
-  return {box:box,rb:rb,cb:cb,mb:mb};
-}
-var MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-// "Oct 7, 2026" for an ISO date (or date-time); '' when it is not one.
-function dateLabel(d){var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(d||''));return m&&+m[2]>=1&&+m[2]<=12?MONTHS[+m[2]-1]+' '+(+m[3])+', '+m[1]:''}
-// The people on a source as {name,url,photo}: structured authors first, then plain names, then a social post's single author. Videos carry the channel name only, so they get none.
-function srcPeople(o){
-  if(!o||o.kind==='video')return [];
-  var raw=Array.isArray(o.authorDetails)&&o.authorDetails.length?o.authorDetails:Array.isArray(o.authors)&&o.authors.length?o.authors:(typeof o.author==='string'&&o.author.trim()?[o.author.trim()]:[]);
-  return raw.map(function(p){return typeof p==='string'?{name:p}:p}).filter(function(p){return p&&typeof p.name==='string'&&p.name.trim()});
-}
-function initials(n){var w=String(n).replace(/[^\p{L}\p{N}\s'-]/gu,' ').split(/\s+/).filter(Boolean);return ((w[0]||'').charAt(0)+(w.length>1?w[w.length-1].charAt(0):'')).toUpperCase()}
-// Overlapping round headshots (photo, else initials) then the names: "A & B", "A, B, C & 1 more". Names link when the author has a page.
-var BY_MAX=3;
-function bylineRow(people){
-  if(!people.length)return null;
-  var row=el('div','byline'),av=el('span','avatars'),nm=el('div','names'),shown=people.slice(0,BY_MAX),more=people.length-shown.length;
-  av.setAttribute('aria-hidden','true');
-  shown.forEach(function(p){
-    var pu=safeUrl(p.photo),a;
-    if(pu){a=el('img','avatar');a.src=pu;a.alt='';a.loading='lazy';a.referrerPolicy='no-referrer';a.onerror=function(){a.removeAttribute('src');a.className='avatar ini'}}
-    else a=el('span','avatar ini',initials(p.name));
-    av.appendChild(a);
-  });
-  if(more>0)av.appendChild(el('span','avatar rest','+'+more));
-  joinNames(nm,shown,more,function(p){var l=link(p.name,p.url);if(l.nodeType===1&&p.url)l.className='nm';return l});
-  row.appendChild(av);row.appendChild(nm);return row;
-}
-// The one joiner for names ("A & B", "A, B, C & 1 more"): bylineRow and speakerLines share it. mk(p) returns the node for one name.
-function joinNames(nm,shown,more,mk){
-  shown.forEach(function(p,i){
-    if(i>0)nm.appendChild(document.createTextNode(i===shown.length-1&&more<1?' & ':', '));
-    nm.appendChild(mk(p));
-  });
-  if(more>0)nm.appendChild(document.createTextNode(' & '+more+' more'));
-}
-// One console.warn per kind of malformed field per page load (the field is skipped, the rest of the item still draws).
-var WARNED={};
-function warnOnce(kind){if(WARNED[kind])return;WARNED[kind]=1;try{console.warn('console: skipped a malformed '+kind)}catch(e){}}
-// Consumer gate for speakers (issue #166): not an array, or an entry with no name, drops the entry; a link that is not http(s) drops only the link. Role is the stored heading, "Speakers" when blank.
-function cleanSpeakers(raw){
-  if(raw==null)return [];
-  if(!Array.isArray(raw)){warnOnce('speakers');return []}
-  var out=[];
-  raw.forEach(function(s){
-    if(!s||typeof s!=='object'||typeof s.name!=='string'||!s.name.trim()||(s.role!=null&&typeof s.role!=='string')||(s.title!=null&&typeof s.title!=='string')){warnOnce('speakers entry');return}
-    var c={name:s.name.trim(),title:typeof s.title==='string'?s.title.trim():'',role:typeof s.role==='string'&&s.role.trim()?s.role.trim():'Speakers',url:null};
-    if(s.url!=null){c.url=typeof s.url==='string'?safeUrl(s.url):null;if(!c.url)warnOnce('speaker link')}
-    if(s.photo!=null&&!(typeof s.photo==='string'&&safeUrl(s.photo)))warnOnce('speaker photo');
-    out.push(c);
-  });
-  return out;
-}
-// Role-grouped lines under an event or recording: "Moderator: A. Name", "Speakers: B, C & 2 more". A New America person links to their page; an outside speaker is name and title only. null when there are none.
-function speakerLines(raw){
-  var list=cleanSpeakers(raw);if(!list.length)return null;
-  var box=el('div','speakers'),groups=[];
-  list.forEach(function(s){
-    var g=groups.filter(function(x){return x.role===s.role})[0];
-    if(!g){g={role:s.role,people:[]};groups.push(g)}
-    g.people.push(s);
-  });
-  groups.forEach(function(g){
-    var row=el('div','sp-row'),nm=el('span','sp-names');
-    row.appendChild(el('span','sp-role',g.role+': '));
-    joinNames(nm,g.people.slice(0,BY_MAX),Math.max(0,g.people.length-BY_MAX),function(p){
-      var w=el('span','sp'),l=link(p.name,p.url);if(l.nodeType===1)l.className='nm';w.appendChild(l);
-      if(p.title)w.appendChild(el('span','sp-title',' ('+p.title+')'));
-      return w;
-    });
-    row.appendChild(nm);box.appendChild(row);
-  });
-  return box;
-}
-// The source's image (issue #166): http(s) url and whole positive width and height, else it is skipped. The stored alt stays (empty means decorative); a failed load hides the box and leaves the text.
-function imageBlock(o){
-  var im=o&&o.image;if(im==null)return null;
-  function dim(n){return typeof n==='number'&&isFinite(n)&&Math.floor(n)===n&&n>0}
-  var u=typeof im==='object'&&typeof im.url==='string'?safeUrl(im.url):null;
-  if(!u||!dim(im.width)||!dim(im.height)||(im.alt!=null&&typeof im.alt!=='string')){warnOnce('image');return null}
-  var box=el('div','src-img'),a=el('img');
-  a.setAttribute('src',u);a.setAttribute('alt',im.alt||'');a.setAttribute('width',String(im.width));a.setAttribute('height',String(im.height));
-  a.setAttribute('loading','lazy');a.setAttribute('referrerpolicy','no-referrer');
-  a.referrerPolicy='no-referrer';
-  a.onerror=function(){box.className='src-img gone';box.setAttribute('hidden','')};
-  box.appendChild(a);return box;
-}
-// Topic and issue chips as soft pills: linked ones go to their newamerica.org page; at most TAG_MAX, then "+n".
-function chipList(o){
-  // the content type already shows as the card's format tag, so it is not repeated as a chip
-  var names=tagItems(o&&o.tags,o&&o.program).filter(function(n){return n.name!==(o&&o.label)});if(!names.length)return null;
-  var ul=el('ul','topics');
-  names.slice(0,TAG_MAX).forEach(function(n){var li=el('li'),c;if(n.href){c=el('a','tag-chip tag-link',n.name);c.href=n.href;c.target='_blank';c.rel='noopener'}else c=el('span','tag-chip',n.name);li.appendChild(c);ul.appendChild(li)});
-  if(names.length>TAG_MAX){var m=el('li');m.appendChild(el('span','tag-more','+'+(names.length-TAG_MAX)));ul.appendChild(m)}
-  return ul;
-}
-// Embedded player (issue #148): a video card or an event recording gets a Play button that swaps itself for the iframe on click; nothing is embedded on render.
-// The id and start come from the server (Zod, src/mcp/player.ts) and are shape-checked again here before any url is built.
-var VIDEO_ID=/^[A-Za-z0-9_-]{11}$/;
-// {id,start} or null: a hit carries youtubeId (videoId is its numeric citation key), a citation or recording carries videoId as the 11-character id; start is a whole number of seconds, 0 or more, and absent means 0.
-function videoRef(o){
-  if(!o||typeof o!=='object')return null;
-  var id=typeof o.youtubeId==='string'?o.youtubeId:(typeof o.videoId==='string'?o.videoId:'');
-  if(!VIDEO_ID.test(id))return null;
-  var s=o.start==null?0:o.start;
-  if(typeof s!=='number'||!isFinite(s)||Math.floor(s)!==s||s<0)return null;
-  return {id:id,start:s};
-}
-function embedSrc(ref){return 'https://www.youtube-nocookie.com/embed/'+ref.id+'?start='+ref.start+'&autoplay=1&rel=0'}
-function watchHref(ref){return 'https://www.youtube.com/watch?v='+ref.id+(ref.start>0?'&t='+ref.start+'s':'')}
-function clockLabel(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return (h?h+':'+(m<10?'0':''):'')+m+':'+(r<10?'0':'')+r}
-// The Play button (its text "Play from m:ss", or "Play" with no start) and the plain "Watch on YouTube" link; the button replaces itself with the iframe.
-function playBox(ref,title){
-  var box=el('div','player'),slot=el('div','player-slot'),label=ref.start>0?'Play from '+clockLabel(ref.start):'Play',btn=el('button','play-btn',label);
-  btn.type='button';
-  btn.setAttribute('aria-label',label+': '+title);
-  btn.onclick=function(){
-    var f=el('iframe','player-frame');
-    f.setAttribute('src',embedSrc(ref));f.setAttribute('title',title+' (recording)');f.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
-    f.setAttribute('allowfullscreen','');f.setAttribute('loading','lazy');
-    slot.textContent='';slot.appendChild(f);
-  };
-  slot.appendChild(btn);box.appendChild(slot);
-  var w=el('a','yt-link','Watch on YouTube');w.href=watchHref(ref);w.target='_blank';w.rel='noopener noreferrer';box.appendChild(w);
-  return box;
-}
-// One source as a card: meta row (index, program, format, date), title, summary and excerpt, chips, byline and actions.
-// Returns {root,card,acts,slot}: root holds the card and, under it, slot for Read/Cite output; the caller wires acts with wireActs. n is the citation number (null for an unnumbered row); tag is the root element (li in a list).
-function srcItem(o,n,tag){
-  var root=el(tag||'div','src-item'),card=el('article','src-card'),social=o.kind==='social',video=o.kind==='video';
-  if(n!=null){root.id='src-'+n;root.value=n}
-  var meta=el('div','src-meta');
-  if(n!=null){var ix=el('span','idx',String(n));ix.setAttribute('aria-label','Source '+n);meta.appendChild(ix)}
-  if(o.program&&!social&&!video){var p=link(o.program,o.programUrl);if(p.nodeType===1)p.className='program';else{var ps=el('span','program');ps.appendChild(p);p=ps}meta.appendChild(p)}
-  var fmt=social?'Social post':video?(o.label||'Video'):(o.label||'');
-  if(fmt)meta.appendChild(el('span','format',fmt));
-  if(video&&o.popular===true)meta.appendChild(el('span','tag-pop','Popular'));
-  var pu=safeUrl(o.pdfUrl);
-  if(pu){var pa=el('a','pdf-pill','PDF');pa.href=pu;pa.target='_blank';pa.rel='noopener';pa.setAttribute('aria-label','Open PDF of '+(o.title||'this source')+' (new tab)');meta.appendChild(pa)}
-  if(o.downloads!=null&&!Array.isArray(o.downloads))warnOnce('downloads');
-  if(Array.isArray(o.downloads))o.downloads.forEach(function(d){var du=d&&typeof d==='object'&&typeof d.url==='string'?safeUrl(d.url):null;if(!du||typeof d.title!=='string'||!d.title.trim()){warnOnce('download');return}if(du===pu)return;var da=el('a','pdf-pill',typeof d.kind==='string'&&d.kind.trim()?d.kind.trim():'File');da.href=du;da.target='_blank';da.rel='noopener';da.setAttribute('aria-label','Open '+d.title.trim()+' (new tab)');meta.appendChild(da)});
-  if(o.charts!=null&&!Array.isArray(o.charts))warnOnce('charts');
-  if(Array.isArray(o.charts))o.charts.forEach(function(c){var cu=c&&typeof c==='object'&&typeof c.url==='string'?safeUrl(c.url):null;if(!cu||typeof c.title!=='string'||!c.title.trim()){warnOnce('chart');return}var ca=el('a','pdf-pill','Chart');ca.href=cu;ca.target='_blank';ca.rel='noopener';ca.setAttribute('aria-label','Open chart '+c.title.trim()+' (new tab)');meta.appendChild(ca)});
-  if(o.chapters>0)meta.appendChild(el('span','chap-note',o.chapters+(o.chapters===1?' chapter':' chapters')));
-  if(typeof o.similarity==='number')meta.appendChild(el('span','sim',Math.round(o.similarity*100)+'% similar'));
-  var dl=dateLabel(o.date),tm=el('time','date',dl||'Undated');if(dl)tm.setAttribute('datetime',String(o.date).slice(0,10));meta.appendChild(tm);
-  card.appendChild(meta);
-  var img=imageBlock(o);if(img)card.appendChild(img);
-  var h=el('h3','src-title');h.appendChild(link(o.title||'(untitled)',o.url));
-  if(o.external)h.appendChild(el('span','badge','(coverage)'));
-  card.appendChild(h);
-  if(o.why&&typeof o.why==='string'&&o.why.trim())card.appendChild(el('p','summary',o.why.trim()));
-  var dek=typeof o.blurb==='string'&&o.blurb.trim()?o.blurb.trim():(typeof o.abstract==='string'&&o.abstract.trim()?o.abstract.trim():'');
-  if(dek)card.appendChild(el('p','dek',dek));
-  if(o.funders&&o.funders.length){var fr=el('div','fund-row');fr.appendChild(el('span','fund-lab','Funded by'));o.funders.forEach(function(f){fr.appendChild(el('span','tl-chip',f))});card.appendChild(fr)}
-  var ref=video?videoRef(o):null;if(ref)card.appendChild(playBox(ref,o.title||'this video'));
-  var sps=speakerLines(o.speakers);if(sps)card.appendChild(sps);
-  var chips=chipList(o);if(chips)card.appendChild(chips);
-  var by=bylineRow(srcPeople(o)),acts=actsRow(o);
-  if(by||acts){var foot=el('div','src-foot');if(by)foot.appendChild(by);if(acts)foot.appendChild(acts.box);card.appendChild(foot)}
-  root.appendChild(card);
-  var slot=el('div','src-slot');if(acts)root.appendChild(slot);
-  return {root:root,card:card,acts:acts,slot:slot};
-}
-// "Sources" label with the count and a rule under it.
-function srcsHead(n){var hd=el('header','sources-head');hd.appendChild(el('h4',null,'Sources'));hd.appendChild(el('span','count',String(n)));return hd}
-//#rows-end
-function item(it){
-  var r=srcItem(it,null,'div');
-  if(r.acts)wireActs(it,r.acts,r.slot);
-  return r.root;
-}
-var REDUCED=function(){return matchMedia("(prefers-reduced-motion: reduce)").matches};
-// Read, Cite and "n more like this" on one source row; slot holds the Read/Cite output under the row.
-function wireActs(it,a,slot){
-  var rb=a.rb,cb=a.cb;
-  if(a.mb)a.mb.onclick=function(){openExplore(it,a.mb)};
-  rb.onclick=async function(){
-    if(slot.firstChild&&slot.firstChild.className==='doc'){slot.textContent='';return}
-    rb.disabled=true;
-    try{
-      var r=await tool('get_document',{id:it.id,include:['abstract','sections'],max_chars:6000});
-      var pre=el('pre','doc',r.text||JSON.stringify(r.data,null,1));
-      slot.textContent='';slot.appendChild(pre);
-    }catch(e){e=netErr(e);slot.textContent=e.msg}
-    rb.disabled=false;
-  };
-  cb.onclick=async function(){
-    cb.disabled=true;
-    try{
-      var r=await tool('cite',{ids:[it.id],style:'markdown'});
-      var c=r.data&&r.data.citations&&r.data.citations[0]&&r.data.citations[0].citation||r.text;
-      var pre=el('pre','cite',c);slot.textContent='';slot.appendChild(pre);
-      var ok=false;try{await navigator.clipboard.writeText(c);ok=true}catch(e){}
-      cb.textContent=ok?'Copied':'Cite';
-      if(!ok){var rg=document.createRange();rg.selectNodeContents(pre);var sl=getSelection();sl.removeAllRanges();sl.addRange(rg)}
-    }catch(e){e=netErr(e);slot.textContent=e.msg}
-    cb.disabled=false;
-  };
-}
-// The explore card for one source, inserted after the card holding the clicked link (the answer, or an earlier explore card).
-// A second click scrolls to that card; after a failed load it removes the error card and retries.
-async function openExplore(it,btn){
-  if(btn._xp&&btn._xp.isConnected&&!btn._xp.classList.contains("xp-err")){btn._xp.scrollIntoView({block:"start",behavior:REDUCED()?"auto":"smooth"});return}
-  if(btn._xp){btn._xp.remove();btn._xp=null}
-  var anchor=btn.closest(".card")||btn.closest(".src-item")||btn.closest(".item")||btn.parentNode;
-  var card=el("article","card xp");card.setAttribute("aria-busy","true");
-  card.appendChild(el("p","meta","Reading \u201c"+(it.title||"this source")+"\u201d and finding sources like it..."));
-  anchor.parentNode.insertBefore(card,anchor.nextSibling);btn._xp=card;btn.disabled=true;
-  try{var r=await tool("explore",{id:it.id});card.textContent="";renderExplore(r.data||{},card)}
-  catch(e){e=netErr(e);card.textContent="";card.classList.add("xp-err");card.appendChild(el("p","meta",e.msg+" Select \u201c"+btn.textContent+"\u201d again to retry."))}
-  card.removeAttribute("aria-busy");btn.disabled=false;
-  card.scrollIntoView({block:"start",behavior:REDUCED()?"auto":"smooth"});
-}
-function pdfPill(parent,url,title){
-  var pu=safeUrl(url);if(!pu)return;
-  var pa=el("a","pdf-pill","PDF");pa.href=pu;pa.target="_blank";pa.rel="noopener";pa.setAttribute("aria-label","Open PDF of "+(title||"this source")+" (new tab)");
-  parent.appendChild(document.createTextNode(" "));parent.appendChild(pa);
-}
-// Detailed summary (title, tier and date, program line, lead, outline, key paragraphs, PDF and chapters), then Related sources rows with the same controls.
-function renderExplore(d,card){
-  var doc=d.document||{};
-  var h=el("h3");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
-  card.appendChild(el("div","meta",[doc.tierName||TIERS[doc.tier]||"",doc.date?String(doc.date).slice(0,10):"undated",doc.label].filter(Boolean).join(" \u00b7 ")));
-  var pr=progRow(doc);if(pr)card.appendChild(pr);
-  if(d.lead)card.appendChild(el("p","abs",d.lead));
-  var ol=(d.outline||[]).slice(0,20);
-  if(ol.length){
-    card.appendChild(el("h4",null,"Outline"));
-    var top=Math.min.apply(null,ol.map(function(x){return x.level||2})),ul=el("ul","xp-outline");
-    ol.forEach(function(x){var li=el("li",null,x.text),dep=Math.max(0,Math.min(4,(x.level||2)-top));if(dep)li.style.marginLeft=dep+"rem";ul.appendChild(li)});
-    card.appendChild(ul);
-  }
-  (d.keyParagraphs||[]).forEach(function(p){card.appendChild(el("p","xp-key",p))});
-  var ch=d.chapters||{};
-  if(safeUrl(d.pdfUrl)||ch.count>0){var m=el("div","meta");pdfPill(m,d.pdfUrl,doc.title);if(ch.count>0)m.appendChild(el("span","chap-note"," "+ch.count+(ch.count===1?" chapter":" chapters")));card.appendChild(m)}
-  var rel=d.related||{},items=rel.items||[];
-  card.appendChild(el("h4",null,"Related sources"+(items.length?" ("+items.length+")":"")));
-  if(rel.matched_by==="lexical")card.appendChild(el("p","meta fine","Matched by title and lead words"+(rel.fallbackReason?" ("+rel.fallbackReason+")":"")+"."));
-  if(!items.length){card.appendChild(el("p","meta",rel.note||"Nothing similar was found."));return}
-  var list=el("ol","srcs xp-rel");
-  items.forEach(function(it){var r=srcItem(it,null,"li");if(r.acts)wireActs(it,r.acts,r.slot);list.appendChild(r.root)});
-  card.appendChild(list);
-}
 
 // The quiet tag above an answer (docs/voice.md): "Themes" on a themes answer, else nothing. The "Answering as a question about <topic>" tag is gone (#116): the topic was the server's stripped residue and read as garbage.
 function readAs(d){
   if(!d||d.kind==="help")return "";
   return d.kind==="throughlines"?"Themes":"";
 }
-function toEnd(n){n.scrollIntoView({block:"end",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
+// Where to scroll so a new answer starts at its first line. Pure: numbers in, "top" | "nearest" | "none" out.
+// height = the block to show (card, or question plus card); vh = visible viewport height (above the sticky composer); scrolled = the reader scrolled this turn.
+// A block taller than the view starts at the top of the view; one that fits is kept in view with nearest; a reader who moved away is left alone.
+function revealPlan(height,vh,scrolled){
+  if(scrolled)return "none";
+  return height>vh?"top":"nearest";
+}
+var userScrolled=false;
+(function(){
+  function mark(){userScrolled=true}
+  addEventListener("wheel",mark,{passive:true});addEventListener("touchmove",mark,{passive:true});
+  addEventListener("keydown",function(e){
+    var t=e.target&&e.target.tagName;if(t==="TEXTAREA"||t==="INPUT")return;
+    if(/^(PageUp|PageDown|Home|End|ArrowUp|ArrowDown| )$/.test(e.key))mark();
+  });
+})();
+// Thin DOM glue: bring card (and, with first, the question above it) into view without ever jumping to the end of a tall answer.
+function reveal(card,first){
+  var from=first||card,r0=from.getBoundingClientRect(),r1=card.getBoundingClientRect();
+  var comp=document.querySelector(".composer"),vh=innerHeight-(comp?comp.getBoundingClientRect().height:0);
+  var plan=revealPlan(r1.bottom-r0.top,vh,userScrolled);
+  if(plan==="none")return;
+  (plan==="top"?from:card).scrollIntoView({block:plan==="top"?"start":"nearest",behavior:REDUCED()?"auto":"smooth"});
+}
 function settle(t,state){
   var sh=t.body.parentNode,fin=false;
-  function go(){if(fin)return;fin=true;sh.classList.remove("anim");toEnd(t.card)}
+  function go(){if(fin)return;fin=true;sh.classList.remove("anim");reveal(t.card)}
   if(matchMedia("(prefers-reduced-motion: reduce)").matches){t.card.dataset.state=state;go();return}
   sh.classList.add("anim");t.card.dataset.state=state;
   sh.addEventListener("transitionend",function(e){if(e.target===sh&&e.propertyName==="grid-template-rows")go()});
@@ -482,19 +225,16 @@ function turn(q){
   // restart a short fade-up whenever the stage text changes (text itself updates immediately)
   new MutationObserver(function(){stage.classList.remove("swap");void stage.offsetWidth;stage.classList.add("swap")}).observe(stage,{childList:true});
   $("out").appendChild(u);$("out").appendChild(a);
-  toEnd(a);
+  userScrolled=false;reveal(a,u);
   return {card:a,stage:stage,body:body};
 }
+// The cards call the server and fill the question box through the page.
+C.host.tool=tool;C.host.netErr=netErr;C.host.fill=fill;
 function fill(text){var q=$("q");q.value=text;grow();q.focus()}
-function chips(list){
-  var box=el("div","chips");
-  list.forEach(function(x){var b=el("button","chip",x);b.type="button";b.onclick=function(){fill(x)};box.appendChild(b)});
-  return box;
-}
 //#starters-start
 // t: "r" research question (g = issue area; k = "g" general, a newcomer could ask it without knowing New America's catalogue, or "s" specific, it names a report, person, survey, index or program) or "i" institution question (g = category). live:false holds a question out of the rotation until its fix lands (none held now: funding went live with #117 and #119).
 var STARTERS=[
-{t:"r",k:"s",g:"thriving-families",q:"How did Vermont get universal child care, and could other states copy it?"},
+{t:"r",k:"s",g:"thriving-families",q:"How did Vermont expand child care to most of its families, and could other states copy it?"},
 {t:"r",k:"s",g:"thriving-families",q:"What do parents of young children say they need most, in New America's National Parent Survey?"},
 {t:"r",k:"g",g:"thriving-families",q:"What does New America recommend for running a cash assistance program well?"},
 {t:"r",k:"g",g:"thriving-families",q:"What does New America say about child care costs?"},
@@ -504,7 +244,7 @@ var STARTERS=[
 {t:"r",k:"g",g:"technology-democracy",q:"What does New America recommend to protect college students' data privacy?"},
 {t:"r",k:"g",g:"technology-democracy",q:"What does New America say about how social media affects democracy?"},
 {t:"r",k:"g",g:"technology-democracy",q:"How should the government deal with the power of big tech companies?"},
-{t:"r",k:"s",g:"democratic-futures",q:"What did Political Reform find in its new polling on ballot initiatives in states without them?"},
+{t:"r",k:"s",g:"democratic-futures",q:"What did Political Reform's 2026 polling find about ballot initiatives in states without them?"},
 {t:"r",k:"s",g:"democratic-futures",q:"What does Mark Schmitt argue in Democracy Reforms Go Better Together?"},
 {t:"r",k:"g",g:"democratic-futures",q:"How could American elections work better, according to New America?"},
 {t:"r",k:"g",g:"democratic-futures",q:"What does New America say about why Americans feel so divided?"},
@@ -524,8 +264,8 @@ var STARTERS=[
 {t:"i",g:"influence",q:"Who has covered New America in the news?"},
 {t:"i",g:"people",q:"Who at the Political Reform program should a reporter call about multiparty politics and proportional representation?"},
 {t:"i",g:"people",q:"Who at New America should I talk to about Wagner Group and Future of Proxy Warfare?"},
-{t:"i",g:"funding",q:"How has New America's disclosed funding changed since it began publishing its funders in 2018?"},
-{t:"i",g:"funding",q:"Which reports did the Bill & Melinda Gates Foundation help pay for at New America?"}
+{t:"i",g:"funding",q:"How has New America's funding changed over the years it has published its funders?"},
+{t:"i",g:"funding",q:"Which New America reports did the Gates Foundation support?"}
 ];
 var STARTER_KEY="na.starters";
 // Five chips per load, a pure function of the visit counter n (no random numbers, so tests replay it). Normal load: 3 research questions from 3 areas plus 2 institution questions from 2 categories; with fewer than 3 live categories: 4 research plus 1.
@@ -552,281 +292,6 @@ function welcome(){
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
 function grow(){var q=$("q");if(AUTO){q.style.height="";return}q.style.height="auto";q.style.height=Math.min(q.scrollHeight,112)+"px"}
-// Minimal markdown: paragraphs, bullets, **bold**; [n] becomes a superscript link to Sources entry n. All text is escaped via textContent.
-function inline(parent,s,cites){
-  var re=/(!\[[^\]]*\]\([^)\s]+\)|\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*|\[\d+\])/g,parts=s.split(re);
-  parts.forEach(function(p){
-    if(!p)return;
-    var im=p.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
-    if(im){if(safeUrl(im[2])){var i=el("img","av");i.src=im[2];i.alt=im[1]||"";i.loading="lazy";i.referrerPolicy="no-referrer";parent.appendChild(i)}return}
-    var lk=p.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
-    if(lk){if(safeUrl(lk[2]))parent.appendChild(link(lk[1],lk[2]));else parent.appendChild(document.createTextNode(lk[1]));return}
-    if(/^\*\*.+\*\*$/.test(p)){parent.appendChild(el("strong",null,p.slice(2,-2)));return}
-    var m=p.match(/^\[(\d+)\]$/);
-    if(m&&cites[m[1]]){var sup=el("sup"),a=el("a",null,"["+m[1]+"]");a.href="#src-"+m[1];a.onclick=function(ev){ev.preventDefault();var t=document.getElementById("src-"+m[1]);if(t)t.scrollIntoView({block:"center",behavior:"smooth"})};sup.appendChild(a);parent.appendChild(sup);return}
-    parent.appendChild(document.createTextNode(p));
-  });
-}
-function md(text,cites){
-  var box=el("div","md"),lines=String(text).replace(/\r/g,"").split("\n"),ul=null,para=[];
-  function flush(){if(para.length){var p=el("p");inline(p,para.join(" "),cites);box.appendChild(p);para=[]}}
-  lines.forEach(function(l){
-    var b=l.match(/^\s*[-*]\s+(.*)$/),h=l.match(/^#{1,6}\s+(.*)$/);
-    if(b){flush();if(!ul){ul=el("ul");box.appendChild(ul)}var li=el("li");inline(li,b[1],cites);ul.appendChild(li);return}
-    ul=null;
-    if(h){flush();var hh=el("h4");inline(hh,h[1],cites);box.appendChild(hh);return}
-    if(!l.trim()){flush();return}
-    para.push(l.trim());
-  });
-  flush();return box;
-}
-function renderAnswer(d,q,out){
-  var cites={};(d.citations||[]).forEach(function(c){cites[c.n]=c});
-  // drop the model's own trailing Sources list; the structured one below is authoritative
-  var body=String(d.answer||"").replace(/\n+[ \t]*(?:#{1,6}[ \t]*)?\**[ \t]*Sources[ \t]*:?[ \t]*\**[ \t]*:?[ \t]*\n[\s\S]*$/i,"");
-  var card=el("article","card");
-  card.appendChild(md(body,cites));
-  if(d.citations&&d.citations.length){
-    card.appendChild(srcsHead(d.citations.length));
-    var ol=el("ol","srcs");
-    d.citations.forEach(function(c){var r=srcItem(c,c.n,"li");if(r.acts)wireActs(c,r.acts,r.slot);ol.appendChild(r.root)});card.appendChild(ol);
-  }
-  var u=d.usage||{};
-  card.appendChild(el("div","meta fine",(d.model||"model")+" · "+(u.input_tokens||0)+" in / "+(u.output_tokens||0)+" out tokens"));
-  out.appendChild(card);
-}
-function renderHelp(d,text,out){
-  var card=el("article","card");
-  card.appendChild(md(text||"",{}));
-  var ex=((d&&d.examples)||[]).concat(d&&d.throughlinesExample?[d.throughlinesExample]:[]);
-  if(ex.length){card.appendChild(el("h4",null,"Tap an example to fill the box"));card.appendChild(chips(ex))}
-  out.appendChild(card);
-}
-function yearSpan(y){if(!y||y[0]==null)return "undated";return y[0]===y[1]?String(y[0]):y[0]+"\u2013"+y[1]}
-// "Explore on the site" (programs, topics and issues, then the site's index pages), then "Related themes", appended to a themes, people or agent answer.
-function siteBlocks(d,card){
-  var rel=d.related||{},ps=rel.programs||[],ts=rel.terms||[],ix=rel.indexes||[];
-  if(ps.length||ts.length||ix.length){
-    card.appendChild(el("h4",null,"Explore on the site"));
-    [["Programs",ps],["Topics and issues",ts],["",ix]].forEach(function(p){if(!p[1].length)return;var row=el("div","fund-row");if(p[0])row.appendChild(el("span","fund-lab",p[0]));p[1].forEach(function(x){row.appendChild(link(x.name,x.url));row.appendChild(document.createTextNode(" "))});card.appendChild(row)});
-  }
-  var disc=d.discovered||[];
-  if(disc.length){
-    card.appendChild(el("h4",null,"Related themes"));
-    var ul=el("ul","tl-reps");
-    disc.forEach(function(g){var li=el("li");li.appendChild(el("strong",null,g.label));if(g.sentence)li.appendChild(document.createTextNode(" \u2014 "+g.sentence+" "));if(g.representative){li.appendChild(document.createTextNode(" "));li.appendChild(link(g.representative.title||"(untitled)",g.representative.url))}ul.appendChild(li)});
-    card.appendChild(ul);
-  }
-}
-// "Seen in: A, B and N more" from a theme's top programs and its program count; '' when it names none (same rule as seenIn in src/mcp/tools/throughlines.ts).
-function seenIn(c){
-  var names=(c.programs||[]).slice(0,2).map(function(p){return p.name});
-  if(!names.length)return "";
-  var more=Math.max(c.programCount||0,(c.programs||[]).length)-names.length;
-  if(more>0)return "Seen in: "+names.join(", ")+" and "+more+" more";
-  return "Seen in: "+(names.length===1?names[0]:names[0]+" and "+names[1]);
-}
-function renderThroughlines(d,out){
-  var card=el("article","card tl");
-  card.appendChild(el("h3",null,d.topic&&(d.ranking==="topic"||d.ranking==="lexical")?"Ideas on "+d.topic+" that recur across New America\u2019s work":d.program?"Ideas that recur across New America\u2019s work, including "+d.program:"Ideas that recur across New America\u2019s work"));
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  var list=d.clusters||[];
-  if(!list.length)card.appendChild(el("p",null,"No theme matched."));
-  list.forEach(function(c){
-    var s=el("section","tl-cluster");
-    s.appendChild(el("h4",null,c.label||("Theme "+c.id+" (not yet named)")));
-    if(c.sentence)s.appendChild(el("p","tl-sentence",c.sentence));
-    var seen=seenIn(c);if(seen)s.appendChild(el("div","meta",seen));
-    var ul=el("ul","tl-reps");
-    (c.representatives||[]).slice(0,2).forEach(function(r){
-      var li=el("li");li.appendChild(link(r.title||"(untitled)",r.url));
-      if(r.date)li.appendChild(el("span","tl-year",String(r.date).slice(0,4)));
-      ul.appendChild(li);
-    });
-    s.appendChild(ul);card.appendChild(s);
-  });
-  siteBlocks(d,card);
-  out.appendChild(card);
-}
-function renderFunders(d,out){
-  var card=el("article","card fd"),pubs=d.publications||[],items=d.items||[];
-  card.appendChild(el("h3",null,d.funder?"Publications crediting "+((d.matched||[]).join(", ")||d.funder):"Who funded the work"+(d.groupBy&&d.groupBy!=="funder"?" (by "+d.groupBy+")":"")));
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  else card.appendChild(el("p","meta",d.total+(d.total===1?" publication names":" publications name")+" a funder in its own credit lines. Some funded work names no funder, so the real numbers are higher."));
-  if(pubs.length){
-    var ol=el("ol","fd-pubs");
-    pubs.forEach(function(p){
-      var li=el("li"),h=el("div","st");h.appendChild(link(p.title||"(untitled)",p.url));li.appendChild(h);
-      li.appendChild(el("div","meta",[p.label,p.date?String(p.date).slice(0,10):"",p.program].filter(Boolean).join(" \u00b7 ")));
-      if(p.sentence)li.appendChild(el("div","meta fd-credit","\u201c"+p.sentence+"\u201d"));
-      ol.appendChild(li);
-    });
-    card.appendChild(ol);
-  }else if(items.length){
-    var ul=el("ol","fd-rank");
-    items.forEach(function(it){
-      var li=el("li");li.appendChild(el("strong",null,it.key));
-      li.appendChild(el("span","meta"," \u00b7 "+it.publications+(it.publications===1?" publication":" publications")+" \u00b7 "+yearSpan(it.years)));
-      if(it.top&&it.top.length){var row=el("div","fund-row");it.top.forEach(function(t){row.appendChild(el("span","tl-chip",t))});li.appendChild(row)}
-      ul.appendChild(li);
-    });
-    card.appendChild(ul);
-  }
-  if(d.links&&d.links.length){
-    card.appendChild(el("h4",null,"Where New America publishes its funding"));
-    var lu=el("ul");
-    d.links.forEach(function(l){var li=el("li");li.appendChild(link(l.label,l.url));li.appendChild(document.createTextNode(" \u2014 "+l.note));lu.appendChild(li)});
-    card.appendChild(lu);
-  }
-  out.appendChild(card);
-}
-// Source labels and the footer come from the card (the server's source registry, src/citations/sources.ts); the page keeps no copy.
-// who_cites sends labels; citation_report carries each label on its totals row
-function citeLabel(d,s){var t=(d.totals||[]).find(function(x){return x.source===s});return (d.labels&&d.labels[s])||(t&&t.label)||s}
-function citeFooter(card,d){if(!d.footer)return;card.appendChild(el("p","meta fd-credit",d.footer.checked));card.appendChild(el("p","meta fd-credit",d.footer.notCovered))}
-function renderWhoCites(d,out){
-  var card=el("article","card fd"),doc=d.document||{},items=d.items||[],srcs=d.sources||[];
-  var h=el("h3",null,"Who cites ");h.appendChild(link(doc.title||"(untitled)",doc.url));card.appendChild(h);
-  card.appendChild(el("p","meta",d.total+(d.total===1?" citation":" citations")+(TIERS[doc.tier]?" \u00b7 "+TIERS[doc.tier]:"")));
-  var row=el("div","fund-row");
-  srcs.forEach(function(s){row.appendChild(el("span","tl-chip",citeLabel(d,s.source)+" "+((d.counts||{})[s.source]||0)+(s.status==="ok"?"":" ("+String(s.status).replace("_"," ")+")")))});
-  card.appendChild(row);
-  srcs.forEach(function(s){if(s.note&&s.note!=="not requested"&&s.status!=="skipped")card.appendChild(el("p","meta",citeLabel(d,s.source)+": "+s.note))});
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  if(items.length){
-    var ol=el("ol","fd-pubs");
-    items.forEach(function(it){
-      var li=el("li"),t=el("div","st");t.appendChild(link(it.title||"(untitled)",it.url));t.appendChild(el("span","tl-chip",citeLabel(d,it.source)));
-      if(it.match==="inferred")t.appendChild(el("span","tl-chip","inferred"));li.appendChild(t);
-      li.appendChild(el("div","meta",[it.venue,it.author,it.date?String(it.date).slice(0,10):"",it.cited_by_count!=null?"cited by "+it.cited_by_count:""].filter(Boolean).join(" \u00b7 ")));
-      ol.appendChild(li);
-    });
-    card.appendChild(ol);
-  }
-  if(items.some(function(i){return i.match==="inferred"}))card.appendChild(el("p","meta fd-credit","In the News matches are inferred from shared title words (at least "+Math.round((d.inferredThreshold||0)*100)+"%). Check one before quoting it."));
-  citeFooter(card,d);
-  out.appendChild(card);
-}
-// The News block of the citation report (server: NewsSchema, src/mcp/tools/citations.ts), parsed before it is rendered: absent is fine, a malformed block throws instead of drawing an empty section.
-function parseNews(n){
-  if(n==null)return null;
-  var ok=typeof n==="object"&&typeof n.summary==="string"&&n.summary&&Array.isArray(n.items)&&n.items.every(function(i){return i&&typeof i==="object"&&typeof i.title==="string"&&typeof i.url==="string"&&(i.outlet==null||typeof i.outlet==="string")&&(i.date==null||typeof i.date==="string")&&(i.featured==null||typeof i.featured==="string")});
-  if(!ok)throw new Error("The news section of the report came back in an unexpected shape.");
-  return n;
-}
-function renderCitationReport(d,out){
-  var card=el("article","card fd"),docs=d.documents||[],news=parseNews(d.news);
-  card.appendChild(el("h3",null,"Who cites New America"+(d.since?" since "+d.since:"")));
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  var times=function(n){return n===1?"once":n+" times"};
-  // News first: the server's one sentence, then the newest stories (outlet, linked headline, date, featured person or program).
-  if(news){
-    var sec=el("section","cite-kind");sec.appendChild(el("h4",null,"In the news"));sec.appendChild(el("p",null,news.summary));
-    var nl=el("ul","fd-pubs");
-    news.items.forEach(function(it){
-      var li=el("li"),t=el("div","st");
-      if(it.outlet)t.appendChild(el("strong",null,it.outlet+": "));
-      t.appendChild(link(it.title,it.url));li.appendChild(t);
-      var meta=[it.date?String(it.date).slice(0,10):"",it.featured?"Featuring "+it.featured:""].filter(Boolean).join(" · ");
-      if(meta)li.appendChild(el("div","meta",meta));
-      nl.appendChild(li);
-    });
-    sec.appendChild(nl);card.appendChild(sec);
-  }
-  card.appendChild(el("h4",null,"Most-cited documents"));
-  if(docs.length){
-    var ol=el("ol","fd-rank");
-    docs.forEach(function(x){
-      var li=el("li");li.appendChild(link(x.title||"(untitled)",x.url));
-      var by=Object.keys(x.bySource||{}).map(function(k){return citeLabel(d,k)}).join(", ");
-      li.appendChild(el("span","meta"," · cited "+times(x.total)+(by?", by "+by:"")));
-      ol.appendChild(li);
-    });
-    card.appendChild(ol);
-  }else card.appendChild(el("p","meta","No citation is matched to a listed document yet."));
-  // Other places New America is cited: one sentence per source that has a mention; none for a zero, and In the News has its own section.
-  var rest=(d.totals||[]).filter(function(t){return t.rows>0&&!(t.source==="in_the_news"&&news)});
-  if(rest.length){
-    card.appendChild(el("h4",null,"Elsewhere"));
-    var eu=el("ul");rest.forEach(function(t){eu.appendChild(el("li",null,t.label+" cites New America's work "+times(t.rows)+"."))});card.appendChild(eu);
-  }
-  // A card without state (an older one) counts as checked: nothing is listed as not checked.
-  var unchecked=(d.totals||[]).filter(function(t){return t.state==="not_checked"});
-  if(unchecked.length)card.appendChild(el("p","meta","Not checked yet: "+unchecked.map(function(t){return t.label}).join(", ")+"."));
-  citeFooter(card,d);
-  out.appendChild(card);
-}
-function renderPeople(d,out){
-  var card=el("article","card pp"),list=d.people||[];
-  card.appendChild(el("h3",null,"Who works on "+(d.topic||"this topic")));
-  var cur=Array.isArray(d.curated)?d.curated.filter(function(c){return c&&typeof c==='object'&&c.curated===true&&typeof c.name==='string'&&c.name.trim()}):[];
-  if(Array.isArray(d.curated)&&cur.length<d.curated.length)warnOnce('curated expert');
-  if(cur.length){
-    if(typeof d.curatedNote==='string'&&d.curatedNote.trim())card.appendChild(el("p","meta",d.curatedNote.trim()));
-    var cl=el("ul","pp-list pp-curated");
-    cur.forEach(function(c){
-      var ci=el("li","pp-person"),ch=el("div","pp-head");
-      if(typeof c.photoUrl==='string'&&safeUrl(c.photoUrl)){var cim=el("img","pp-av");cim.src=c.photoUrl;cim.alt="";cim.loading="lazy";cim.referrerPolicy="no-referrer";ch.appendChild(cim)}
-      else ch.appendChild(el("span","pp-av pp-av--none",c.name.trim().charAt(0)));
-      var cw=el("div"),cn=el("strong");cn.appendChild(link(c.name.trim(),c.url));cw.appendChild(cn);
-      if(typeof c.title==='string'&&c.title.trim())cw.appendChild(el("div","meta",c.title.trim()));
-      ch.appendChild(cw);ci.appendChild(ch);cl.appendChild(ci);
-    });
-    card.appendChild(cl);
-  }
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  else card.appendChild(el("p","meta",(cur.length?"Other people, ranked from ":"Ranked from ")+d.corpusSize+(d.corpusSize===1?" publication":" publications")+" on the topic. Bylines only."));
-  var ol=el("ol","pp-list");
-  list.forEach(function(p){
-    var li=el("li","pp-person"),h=el("div","pp-head");
-    if(safeUrl(p.photoUrl)){var im=el("img","pp-av");im.src=p.photoUrl;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";h.appendChild(im)}
-    else h.appendChild(el("span","pp-av pp-av--none",(p.name||"?").charAt(0)));
-    var who=el("div");var nm=el("strong");nm.appendChild(link(p.name,p.bioUrl));who.appendChild(nm);
-    var meta=[p.role,p.program].filter(Boolean).join(" · ");
-    if(meta)who.appendChild(el("div","meta",meta));
-    h.appendChild(who);li.appendChild(h);
-    if(p.why)li.appendChild(el("div","pp-why",p.why));
-    if(p.latest){var lt=el("div","meta");lt.appendChild(document.createTextNode("Latest: "));lt.appendChild(link(p.latest.title||"(untitled)",p.latest.url));if(p.latest.date)lt.appendChild(document.createTextNode(" · "+String(p.latest.date).slice(0,10)));li.appendChild(lt)}
-    ol.appendChild(li);
-  });
-  if(list.length)card.appendChild(ol);
-  siteBlocks(d,card);
-  out.appendChild(card);
-}
-function evWhen(s){if(!s)return "Date not listed";var t=String(s);return t.slice(0,10)+(t.length>10?" "+t.slice(11,16):"")}
-function renderEvents(d,out){
-  var card=el("article","card ev"),list=d.events||[],w=d.window||{};
-  card.appendChild(el("h3",null,d.upcoming?"Upcoming events ("+(w.label||"upcoming")+")":"No upcoming events"+(w.label&&w.label!=="upcoming"?" "+w.label:"")));
-  if(d.note)card.appendChild(el("p","meta",d.note));
-  var ol=el("ol","ev-list");
-  list.forEach(function(e){
-    var li=el("li"),h=el("div","st");h.appendChild(link(e.title||"(untitled)",e.url));
-    if(e.format)h.appendChild(el("span","tl-chip ev-fmt",e.format==="in-person"?"In person":e.format.charAt(0).toUpperCase()+e.format.slice(1)));
-    li.appendChild(h);
-    li.appendChild(el("div","meta",[evWhen(e.event_start),typeof e.location==='string'?e.location:'',e.program].filter(Boolean).join(" · ")));
-    var sp=speakerLines(e.speakers);if(sp)li.appendChild(sp);
-    if(e.abstract)li.appendChild(el("p","ev-abs",e.abstract));
-    var rec=e.recording&&typeof e.recording==='object'?e.recording:null,rr=rec?videoRef({videoId:rec.videoId,start:rec.start}):null;
-    // isPast is decided by the server (injected clock); the console never reads the time. Upcoming: registration, no player. Past: the recording, no registration link. A payload with no isPast (an older server) keeps the old behaviour.
-    if(e.isPast!==false&&rr)li.appendChild(playBox(rr,String(rec.title||e.title||'this event')));
-    if(e.isPast!==true&&safeUrl(e.registrationUrl)){var r=el("div","meta");r.appendChild(link(typeof e.registrationLabel==='string'&&e.registrationLabel.trim()?e.registrationLabel.trim():"Register",e.registrationUrl));li.appendChild(r)}
-    ol.appendChild(li);
-  });
-  if(list.length)card.appendChild(ol);
-  card.appendChild(el("p","meta fine","Times are the site’s local time (Eastern)."));
-  out.appendChild(card);
-}
-function moreSources(card,q){
-  var det=el("details","more"),sm=el("summary",null,"Show all sources"),slot=el("div");
-  det.appendChild(sm);det.appendChild(slot);card.appendChild(det);
-  var loaded=false;
-  det.ontoggle=async function(){
-    if(!det.open||loaded)return;
-    slot.textContent="Loading the ranked sources...";
-    try{var c=await tool("build_corpus",{request:q,max_docs:20});slot.textContent="";renderCorpus(c.data||{groups:[]},slot);loaded=true}
-    catch(e){e=netErr(e);slot.textContent=e.msg}
-  };
-}
 //#history-start
 // The conversation window: the last 8 turns, in this browser's localStorage only (never the URL, never a log). It rides only on
 // the answer call; the server re-applies the same caps (src/mcp/conversation.ts HistorySchema).
@@ -858,38 +323,6 @@ function newChatShown(){
   var row=b.parentNode||el("p","newchat-row");if(!b.parentNode)row.appendChild(b);
   b.hidden=histLoad().length===0;row.hidden=b.hidden;$("out").appendChild(row);
 }
-function canHash(){return !!(window.crypto&&crypto.subtle&&window.TextEncoder)}
-async function sha256Hex(text){
-  var buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
-  return Array.prototype.map.call(new Uint8Array(buf),function(b){return ("0"+b.toString(16)).slice(-2)}).join("");
-}
-function ratingPill(card,ctx){
-  if(!canHash())return;
-  card.classList.add("has-rate");
-  var pill=el("div","rate");pill.setAttribute("role","group");pill.setAttribute("aria-label","Rate this answer");
-  var up=el("button","rate-btn rate-up");up.type="button";up.setAttribute("aria-label","Good answer");up.setAttribute("aria-pressed","false");up.appendChild(el("span","ico ico--up"));
-  var down=el("button","rate-btn rate-down");down.type="button";down.setAttribute("aria-label","Poor answer");down.setAttribute("aria-pressed","false");down.appendChild(el("span","ico ico--down"));
-  var thanks=el("span","rate-thanks");thanks.setAttribute("role","status");
-  var err=null;
-  pill.appendChild(up);pill.appendChild(down);pill.appendChild(thanks);
-  async function rate(btn,rating){
-    if(btn.disabled)return;
-    up.disabled=down.disabled=true;
-    if(err){err.remove();err=null}
-    try{
-      if(!ctx.sha)ctx.sha=await sha256Hex(ctx.text||"");
-      await tool("rate_answer",{request:ctx.request,rating:rating,answer_sha256:ctx.sha});
-      btn.setAttribute("aria-pressed","true");pill.classList.add("rated");
-      thanks.textContent="Thanks";
-    }catch(e){
-      e=netErr(e);up.disabled=down.disabled=false;
-      err=el("div","meta rate-err",e.msg);card.insertBefore(err,pill);
-    }
-  }
-  up.onclick=function(){rate(up,"up")};
-  down.onclick=function(){rate(down,"down")};
-  card.appendChild(pill);
-}
 // The chart is an addendum after the written answer, placed before the rating pill so the pill stays last.
 function addChart(d,card){
   if(!d||d.chart===undefined||d.chart===null||!card||!window.NAChart)return;
@@ -915,29 +348,8 @@ function chartChips(list,onOpen){
   });
   return box.children.length?box:null;
 }
-// The chart ideas: groups of example charts. Each entry is an anchor whose link NAChartExport.shareLink builds from a fresh fragment that holds the plan alone (never a token or a server);
-// a plain click opens the chart in place through onOpen, a modified click or a middle click follows the link.
-function galleryList(groups,onOpen){
-  var X=window.NAChartExport,root=el("div","chart-gallery-groups");
-  if(!X||!Array.isArray(groups))return root;
-  groups.forEach(function(g){
-    if(!g||typeof g.name!=="string"||!Array.isArray(g.entries))return;
-    var ul=el("ul",null);
-    g.entries.forEach(function(e){
-      if(!e||typeof e.question!=="string"||!e.plan||typeof e.plan!=="object")return;
-      var href=X.shareLink(location.origin,location.pathname,e.plan);
-      if(!href)return;
-      var a=el("a",null,e.question),li=el("li",null);a.href=href;
-      a.onclick=function(ev){if(ev&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button>0))return;if(ev)ev.preventDefault();onOpen(e)};
-      li.appendChild(a);ul.appendChild(li);
-    });
-    if(!ul.children.length)return;
-    root.appendChild(el("h3",null,g.name));root.appendChild(ul);
-  });
-  return root;
-}
 //#gallery-end
-// A chart opened from a shared or pasted link (issue #216): the same chart_answer pipeline as a question, called with the link's plan. If the figures changed since the link was made, a plain note says so.
+// A chart opened from a shared link (issue #216): the same chart_answer pipeline as a question, called with the link's plan. If the figures changed since the link was made, a plain note says so.
 async function openShared(shared,title){
   var t=turn(title||"Open a shared chart"),out=t.body;
   t.stage.textContent="Drawing the chart from the link...";
@@ -956,30 +368,13 @@ async function openShared(shared,title){
     out.appendChild(el("p","meta",e.kind==="srv"&&/not valid/i.test(e.msg)?"That link could not be read. Check that you copied all of it.":e.msg));settle(t,"error");
   }
 }
-// The paste box sits under the question box; a page opened on a #plan= link draws that chart at once.
-(function pasteAndOpen(){
-  var X=window.NAChartExport,host=$("paste");
+// A page opened on a #plan= link draws that chart at once.
+(function openFromLink(){
+  var X=window.NAChartExport;
   if(!X)return;
-  if(host)host.appendChild(X.pasteBox(openShared));
   var r=X.payloadFromHash(location.hash||"");
   if(!r)return;
   if(r.ok)openShared(r);else $("out").appendChild(el("p","meta",r.message));
-})();
-// The Chart ideas button shows or hides the gallery; its entries come from the chart_gallery tool once, and one click opens a ready chart (issue #218).
-(function chartIdeas(){
-  var btn=$("ideas"),host=$("gallery"),loaded=false;
-  if(!btn||!host)return;
-  function close(){host.hidden=true;btn.setAttribute("aria-expanded","false")}
-  btn.onclick=async function(){
-    if(!host.hidden){close();return}
-    host.hidden=false;btn.setAttribute("aria-expanded","true");
-    if(loaded)return;
-    host.textContent="";host.appendChild(el("p","meta","Loading chart ideas..."));
-    try{
-      var r=await tool("chart_gallery",{}),list=galleryList((r.data||{}).groups,function(e){close();openShared({plan:e.plan},e.question)});
-      host.textContent="";host.appendChild(el("h2",null,"Chart ideas"));host.appendChild(el("p","meta","Pick one to open a ready chart."));host.appendChild(list);loaded=true;
-    }catch(e){e=netErr(e);host.textContent="";host.appendChild(el("p","meta",e.msg))}
-  };
 })();
 async function run(){
   var q=$("q").value.trim();if(!q)return;
@@ -1000,22 +395,7 @@ async function run(){
     clearInterval(tick);ctr.remove();
     var d=r.data||{};
     t.stage.textContent=readAs(d);
-    if(d.kind==="help"){renderHelp(d,r.text,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="funders"){renderFunders(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="who_cites"){renderWhoCites(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="citation_report"){renderCitationReport(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="throughlines"){renderThroughlines(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="people"){renderPeople(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="events"){renderEvents(d,out);ratingPill(out.lastChild,{request:q,text:r.text||""})}
-    else if(d.kind==="off_topic"){var oc=el("article","card");oc.appendChild(md(String(d.answer||""),{}));out.appendChild(oc)}
-    else if(d.kind&&d.kind!=="answer"&&!d.answer){var gc=el("article","card");gc.appendChild(md(r.text||"",{}));out.appendChild(gc);ratingPill(gc,{request:q,text:r.text||""})}
-    else{
-      renderAnswer(d,q,out);
-      var card=out.lastChild;
-      moreSources(card,q);
-      siteBlocks(d,card);
-      ratingPill(card,{request:q,text:String(d.answer||"")});
-    }
+    C.drawCard(d,r,q,out);
     addChart(d,out.lastChild);
     histAdd(q,d.answer?String(d.answer):String(r.text||""),d.citations);newChatShown();
     settle(t,"done");
@@ -1036,5 +416,6 @@ $("q").oninput=grow;
 $("q").onkeydown=function(ev){if(ev.key==="Enter"&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();run()}};
 (function(){var f=document.querySelector(".composer"),r=document.documentElement;function m(){r.style.setProperty("--composer-h",f.offsetHeight+"px")}m();if(window.ResizeObserver)new ResizeObserver(m).observe(f);else window.addEventListener("resize",m)})();
 gate();welcome();newChatShown();
+$('signout').addEventListener('click',function(){fetch(base()+'/auth/logout',{method:'POST'}).catch(function(){}).then(function(){location.reload()})});
 health();
 })();

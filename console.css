@@ -7,7 +7,7 @@
 :root{--chart-green:#1a7335;--chart-red:#b3261e;--chart-blue:#0b5cad;--chart-orange:#a14a00;--chart-gray:#5a6270}
 @media (prefers-color-scheme:dark){:root{--chart-green:#5ccf85;--chart-red:#ff8a80;--chart-blue:#6db3f5;--chart-orange:#ffa657;--chart-gray:#a0a8b4}}
 /* The focus ring on a chart point (issue #212): the page text colour, so it holds 3:1 against the page in both themes; #204's contrast test reads this token with the rest. */
-:root{--chart-focus:var(--fg)}
+:root{--chart-focus:var(--fg);--card-gap:.8rem;--chat-lh:1.15}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
@@ -70,16 +70,16 @@ code,pre{overflow-wrap:anywhere}pre{max-width:100%;white-space:pre-wrap}
 @media (pointer:coarse){.rate-btn{width:44px;height:44px}.card.has-rate{padding-bottom:4.2rem}}
 .card h4{margin:1rem 0 .3rem;font-size:1rem}
 .cite-kind h5{margin:.5rem 0 .2rem .6rem;font-size:.9rem;font-weight:600}.cite-kind h5+.fund-row{margin-left:.6rem}
-.md{line-height:1.4}
-.md p{margin:0 0 1em;line-height:1.4}.md>p:first-child{margin-top:0}.md>p:last-child{margin-bottom:0}
+.md,.msg,.stage{line-height:var(--chat-lh)}
+.md p{margin:0 0 1em;line-height:var(--chat-lh)}.md>p:first-child{margin-top:0}.md>p:last-child{margin-bottom:0}
 .md ul{margin:0 0 1em;padding-left:1.3rem}.md ul:last-child{margin-bottom:0}
-.md li{line-height:1.4;margin:0 0 .45em}.md li:last-child{margin-bottom:0}
+.md li{line-height:var(--chat-lh);margin:0 0 .45em}.md li:last-child{margin-bottom:0}
 .md h4{margin:1.3em 0 .35em;line-height:1.3}.md>h4:first-child{margin-top:0}
 .why,.blurb{margin:0;overflow-wrap:anywhere;line-height:1.4}
 .why{font-size:14px;color:color-mix(in srgb,var(--mut) 55%,var(--fg));margin:.25em 0 0}
 .blurb{font-size:13.5px;color:var(--mut);margin:.2em 0 0}
+sup,sub{font-size:.75em;line-height:0;vertical-align:baseline;position:relative}sup{top:-.4em}sub{top:.25em}
 sup a{text-decoration:none;font-weight:600}
-.srcs{padding-left:1.6rem;margin:.3rem 0}.srcs li{margin:.6rem 0;padding-left:.2rem}
 .st{font-weight:600}
 .srcs .au img{width:24px;height:24px}
 .fine{margin-top:.8rem;font-size:.75rem}
@@ -215,14 +215,19 @@ html{scroll-behavior:auto}
 .chart-tip{min-height:1.4em;margin:.25rem 0;font-size:.85rem;color:var(--mut);overflow-wrap:anywhere}
 .chart-notes{margin:.3rem 0;padding-left:1.4rem;font-size:.85rem}
 .chart-cov,.chart-extra{margin:.3rem 0}
-/* Keep, share and download (issue #216): the buttons under a figure, the paste box, the note shown when the figures changed. */
+/* Keep, share and download (issue #216): the buttons under a figure, the note shown when the figures changed. */
 .chart-actions{display:flex;flex-wrap:wrap;gap:.4rem;margin:.6rem 0 .2rem}
 .chart-btn{min-height:0;padding:.3rem .7rem;border-radius:14px;font-size:.85rem}
 .chart-btn:focus-visible{outline:3px solid var(--chart-focus);outline-offset:2px}
 .chart-status{min-height:1.4em;margin:.2rem 0}
+/* Download picture (issue #226): a size, then one button per format. */
+.chart-download{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.chart-download-lead{font-size:.85rem;font-weight:600}
+.chart-size{display:inline-flex;align-items:center;gap:.3rem;font-size:.85rem;max-width:100%}
+.chart-size[hidden]{display:none}
+.chart-size select,.chart-width{font:inherit;font-size:.85rem;max-width:100%}
+.chart-width{width:6rem}
 .chart-stale{margin:.4rem 0;font-weight:600}
-.paste-wrap{margin:.4rem 0 0;font-size:.85rem}.paste-wrap summary{cursor:pointer;color:var(--mut)}
-.chart-paste{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.4rem 0}.chart-paste input{flex:1 1 14rem;min-width:0}
 .chart-panel-title{margin:.6rem 0 0;font-size:.85rem;font-weight:600}
 .chart-plot svg{max-width:100%}
 .chart-numbers{overflow-x:auto}
@@ -241,8 +246,10 @@ html{scroll-behavior:auto}
 .sources-head{display:flex;align-items:baseline;gap:.6rem;margin:1.2rem 0 .8rem;padding-bottom:.6rem;border-bottom:2px solid var(--fg)}
 .card .sources-head h4{margin:0;font-size:.8rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 .sources-head .count{font-size:.8rem;color:var(--mut);font-variant-numeric:tabular-nums}
-.srcs{list-style:none;margin:0;padding:0;display:grid;gap:.8rem}
-.srcs>.src-item{margin:0;padding:0}
+.srcs{list-style:none;margin:0;padding:0;display:grid;gap:var(--card-gap)}
+.srcs>.src-item{padding:0}
+/* One vertical gap between every stacked source card, whatever holds it: grid gap in .srcs lists, a top margin where cards sit straight in the answer stage (renderCorpus). */
+:not(.srcs)>.src-item+.src-item{margin-top:var(--card-gap)}
 .src-item{min-width:0}
 .src-card{position:relative;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem .9rem;transition:border-color .15s,box-shadow .15s}
 .src-card:hover{border-color:var(--mut);box-shadow:0 2px 10px color-mix(in srgb,var(--fg) 10%,transparent)}
@@ -313,13 +320,10 @@ html{scroll-behavior:auto}
 .tag-pop{font-size:.75rem;color:var(--mut)}
 /* the player sits above the card-wide title link overlay, so Play starts the embed instead of opening YouTube */
 .player{position:relative;z-index:1}
-/* Suggested next charts and the chart ideas view (issue #218): the page's own colour tokens only */
+/* Suggested next charts (issue #218): the page's own colour tokens only */
 .chart-chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0 .6rem}
 .chart-chip{display:inline-flex;align-items:center;box-sizing:border-box;min-height:44px;padding:.4rem .8rem;border:1px solid var(--line);border-radius:14px;background:var(--card);font-size:.9rem;text-align:left;text-decoration:none;color:var(--acc);max-width:100%;overflow-wrap:anywhere;cursor:pointer}
 .chart-chip:hover{border-color:var(--acc)}
-.chart-chip:focus-visible,.chart-gallery a:focus-visible,.ideas-btn:focus-visible{outline:3px solid var(--chart-focus);outline-offset:2px}
-.ideas-btn{min-height:44px;padding:.3rem .8rem;border-radius:14px;font-size:.9rem;color:var(--acc);margin:.3rem 0}
-.chart-gallery{margin-bottom:1rem}
-.chart-gallery[hidden]{display:none}
-.chart-gallery ul{list-style:none;margin:.2rem 0 .6rem;padding:0;display:flex;flex-direction:column;gap:.2rem}
-.chart-gallery a{display:inline-block;min-height:44px;padding:.55rem 0;color:var(--acc);overflow-wrap:anywhere}
+.chart-chip:focus-visible{outline:3px solid var(--chart-focus);outline-offset:2px}
+.signin-btn{text-decoration:none;padding:0 18px}
+.link-btn{background:none;border:0;padding:0;color:inherit;text-decoration:underline;cursor:pointer;font:inherit}

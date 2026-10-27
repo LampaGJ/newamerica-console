@@ -6,7 +6,7 @@ var SANKEY_URL="https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sanke
 var SANKEY_SRI="sha384-SM54CE5h+qdDI046d2Y5ym7wq1kq4uxcQ1cqGq5/+5jrE5tPLeDJSq711Q8sIska";
 var N=window.NAChart,T=window.NAChartTheme,svgEl=N.svgEl,el=N.el,r1=N.r1,look=N.look,fmtU=N.fmtU,unitsOf=N.unitsOf,pt=N.pt;
 // The picture is a labelled group, not an image, because its points are keyboard stops with labels of their own (an image's children are not exposed to assistive technology).
-function rootSvg(W,H,label,extra){return svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"group","aria-label":label,"class":"chart-svg"+(extra?" "+extra:""),style:"max-width:"+W+"px;height:auto"})}
+function rootSvg(W,H,label,extra){return svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"group","aria-label":label,"class":"chart-svg"+(extra?" "+extra:""),style:"height:auto"})}
 function short(t,n){return t.length>n?t.slice(0,n-1)+"…":t}
 function tickStyle(){return"fill:"+T.muted+";font-size:"+T.fontSize+"px"}
 function cmp(a,b){return a<b?-1:a>b?1:0}
@@ -25,20 +25,35 @@ function begin(spec,W,H,m,o,label){
   var g=svgEl("g",{transform:"translate("+m.left+","+m.top+")"});svg.appendChild(g);
   return{svg:svg,g:g,uid:uid};
 }
-function rowBox(o,rows,rh){var W=o.narrow?360:640,m={top:16,right:o.narrow?18:30,bottom:34,left:o.narrow?100:150};return{W:W,H:m.top+rows*rh+m.bottom,m:m,iw:W-m.left-m.right,ih:rows*rh}}
-function rowLabel(g,text,y,o){var t=svgEl("text",{x:-8,y:r1(y),dy:"0.32em","text-anchor":"end","class":"chart-label",style:"fill:var(--chart-text);font-size:"+T.fontSize+"px"},short(text,o.narrow?13:22));if(text.length>(o.narrow?13:22))t.appendChild(svgEl("title",{},text));g.appendChild(t)}
+// a box of labelled rows at the picture width (T.rowBox, chart-theme.js): names = the row names, rows and rh = how many rows and how tall each one is
+function rowBox(o,names,rows,rh){return T.rowBox(o.width,names,rows,rh)}
+function rowLabel(g,text,y,chars){var t=svgEl("text",{x:-8,y:r1(y),dy:"0.32em","text-anchor":"end","class":"chart-label",style:"fill:var(--chart-text);font-size:"+T.fontSize+"px"},short(text,chars));if(text.length>chars)t.appendChild(svgEl("title",{},text));g.appendChild(t)}
 // Direct value or name labels sit on a halo so they read on any shade.
 function haloLabel(g,x,y,text,anchor,color,cls){g.appendChild(svgEl("text",{x:r1(x),y:r1(y),"text-anchor":anchor||"start","class":cls||"chart-label",style:"fill:"+(color||"var(--chart-text)")+";font-size:"+T.fontSize+"px"},text))}
 function vAxis(g,x,dom,units,iw,ih){
   var a=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(a);
-  dom.ticks.forEach(function(v){var px=r1(x(v));a.appendChild(svgEl("line",{x1:px,x2:px,y1:0,y2:ih,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));a.appendChild(svgEl("text",{x:px,y:ih+16,"text-anchor":"middle","class":"chart-vtick",style:tickStyle()},T.axisFormat(units,v)))});
+  var keep=valueTicks(dom.ticks,x,function(v){return T.axisFormat(units,v)},iw);
+  dom.ticks.forEach(function(v){var px=r1(x(v));a.appendChild(svgEl("line",{x1:px,x2:px,y1:0,y2:ih,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));if(keep[px])a.appendChild(svgEl("text",{x:px,y:ih+16,"text-anchor":"middle","class":"chart-vtick",style:tickStyle()},keep[px]))});
 }
-function xTicks(g,labels,xOf,y,on){
+// A value axis along the bottom (lollipop, beeswarm, scatter): the gridline of every tick stays, the label of a tick is dropped when it would crowd its neighbour.
+// Returns {x: label text} for the ticks to label, so the caller draws each label right after its gridline.
+function valueTicks(ticks,x,fmt,iw){
+  var keep={};T.fitTicks(ticks.map(function(v){return{label:fmt(v),x:r1(x(v))}}),{plain:true,min:-40,max:iw+14}).ticks.forEach(function(t){keep[t.x]=t.text});return keep;
+}
+// The category or date labels along the bottom of a mark, fitted once (T.fitTicks): labels = the axis order, xOf = a label's centre in the plot.
+function fitOf(labels,xOf,rotate,room){return T.fitTicks(labels.map(function(l){return{label:l,x:xOf(l)}}),{rotate:rotate,room:room})}
+function xTicks(g,fit,y,on){
   if(on===false)return;
   var a=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(a);
-  T.tickLabels(labels).forEach(function(l){a.appendChild(svgEl("text",{x:r1(xOf(l)),y:y,"text-anchor":"middle","class":"chart-xtick",style:tickStyle()},l))});
+  fit.ticks.forEach(function(t){
+    var at={x:r1(t.x),y:y,"text-anchor":fit.rotate?"end":"middle","class":"chart-xtick",style:tickStyle()};
+    if(fit.rotate){at.y=y-6;at.transform="rotate(-45 "+r1(t.x)+" "+(y-6)+")"}
+    var e=svgEl("text",at,t.text);if(t.title)e.appendChild(svgEl("title",{},t.title));a.appendChild(e);
+  });
 }
 function axisTitle(g,x,y,anchor,t){g.appendChild(svgEl("text",{x:x,y:y,"text-anchor":anchor,"class":"chart-axis-title",style:"fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600"},t))}
+// the length in characters of the longest of the labels the function writes for these tick values
+function widest(ticks,fmt){return ticks.reduce(function(n,v){return Math.max(n,String(fmt(v)).length)},0)}
 function mapOf(r){var m={};r.points.forEach(function(p){m[p.label]=p});return m}
 function est(r){return!!r.estimate}
 // A plain list standing in for a picture that cannot fit: values from largest to smallest, ties by label.
@@ -53,17 +68,21 @@ function rankedList(host,spec,why){
 var NARROW_WHY="This chart is too wide for a narrow screen. The values are listed from largest to smallest.";
 // ---- Bars: grouped, stacked, and stacked to 100 percent ----
 function barSvg(d3,spec,o){
-  var B=T.box(o.narrow),W=B.W,m={top:B.m.top+14,right:B.m.right,bottom:B.m.bottom,left:B.m.left},H=o.height||B.H+14,iw=B.iw,ih=H-m.top-m.bottom;
   var labels=N.xAxisLabels(spec.type,spec.series,spec.labels),mode=spec.type==="stacked_bar"?"stacked":spec.type==="stacked_100"?"percent":"grouped",n=spec.series.length,multi=n>1;
   var maps=spec.series.map(mapOf),lo=0,hi=0;
   if(mode==="grouped"){var e=extent(spec.series,true);lo=e[0];hi=e[1]}
   else if(mode==="stacked")labels.forEach(function(l){var pos=0,neg=0;maps.forEach(function(mp){var p=mp[l];if(p){if(p.value>=0)pos+=p.value;else neg+=p.value}});hi=Math.max(hi,pos);lo=Math.min(lo,neg)});
   var dom=mode==="percent"?{a:0,b:100,ticks:[0,25,50,75,100]}:domainOf(spec.units,lo,hi);
-  var y=d3.scaleLinear().domain([dom.a,dom.b]).range([ih,0]),x=d3.scaleBand().domain(labels).range([0,iw]).padding(.2);
+  // the margins come from the widest value label, the box from the picture width
+  var B=T.layoutBox(o.width,"plot",{top:14,leftChars:widest(dom.ticks,function(v){return mode==="percent"?v+"%":T.axisFormat(spec.units,v)})}),W=B.W,m=B.m,iw=B.iw;
+  var x=d3.scaleBand().domain(labels).range([0,iw]).padding(.2),fit=fitOf(labels,function(l){return x(l)+x.bandwidth()/2},o.xLabels!==false,m.left-6);
+  // turned labels need more room below the picture; the plot itself keeps its height
+  var H0=o.height||B.H+14,ih=H0-m.top-m.bottom,H=H0+(o.xLabels===false?0:fit.extra);
+  var y=d3.scaleLinear().domain([dom.a,dom.b]).range([ih,0]);
   var s0=begin(spec,W,H,m,o,o.label),svg=s0.svg,g=s0.g,uid=s0.uid;
   var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
   dom.ticks.forEach(function(v){var py=r1(y(v));axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end","class":"chart-tick-left",style:tickStyle()},mode==="percent"?v+"%":T.axisFormat(spec.units,v)))});
-  xTicks(g,labels,function(l){return x(l)+x.bandwidth()/2},ih+20,o.xLabels);
+  xTicks(g,fit,ih+20,o.xLabels);
   axisTitle(g,-m.left+4,-4,"start",mode==="percent"?"Share of each year's total (percent)":spec.units);
   var ends=[],bw=x.bandwidth(),base={},neg={},tot={};
   if(mode==="percent")labels.forEach(function(l){tot[l]=0;maps.forEach(function(mp){if(mp[l])tot[l]+=mp[l].value})});
@@ -91,11 +110,11 @@ function barSvg(d3,spec,o){
 }
 // ---- Lollipop: a ranked dot chart, one row per label ----
 function lollipopSvg(d3,spec,o){
-  var rows=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,rh=Math.max(24,10*n+14),B=rowBox(o,rows.length,rh),e=extent(spec.series,true),dom=domainOf(spec.units,e[0],e[1]);
+  var rows=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,rh=Math.max(24,10*n+14),B=rowBox(o,rows,rows.length,rh),e=extent(spec.series,true),dom=domainOf(spec.units,e[0],e[1]);
   var x=d3.scaleLinear().domain([dom.a,dom.b]).range([0,B.iw]),s0=begin(spec,B.W,B.H,B.m,o),svg=s0.svg,g=s0.g,uid=s0.uid,maps=spec.series.map(mapOf);
   vAxis(g,x,dom,spec.units,B.iw,B.ih);
   rows.forEach(function(lab,i){
-    var cy=i*rh+rh/2;rowLabel(g,lab,cy,o);
+    var cy=i*rh+rh/2;rowLabel(g,lab,cy,B.chars);
     spec.series.forEach(function(s,k){
       var l=look(s,k),y=r1(cy+(k-(n-1)/2)*10),p=maps[k][lab];
       if(!p){g.appendChild(N.gapEl(uid,0,y-5,B.iw,10,N.gapText(s,lab),o));return}
@@ -111,12 +130,12 @@ function lollipopSvg(d3,spec,o){
 }
 // ---- Dot timeline: one row per series, a dot for each period, larger for a higher value ----
 function dotTimelineSvg(d3,spec,o){
-  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,n,38),maxV=Math.max.apply(null,extent(spec.series)),maps=spec.series.map(mapOf);
+  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,spec.series.map(function(s){return s.name}),n,38),maxV=Math.max.apply(null,extent(spec.series)),maps=spec.series.map(mapOf);
   var x=d3.scalePoint().domain(cols).range([0,B.iw]).padding(.5),rad=d3.scaleSqrt().domain([0,maxV||1]).range([3,9]),s0=begin(spec,B.W,B.H,B.m,o),svg=s0.svg,g=s0.g,uid=s0.uid;
   spec.series.forEach(function(s,k){var cy=r1(k*38+19);g.appendChild(svgEl("line",{x1:0,x2:r1(B.iw),y1:cy,y2:cy,"class":"chart-grid",style:"stroke:"+T.grid}))});
-  xTicks(g,cols,x,B.ih+18);
+  xTicks(g,fitOf(cols,x),B.ih+18);
   spec.series.forEach(function(s,k){
-    var l=look(s,k),cy=r1(k*38+19);rowLabel(g,s.name,cy,o);
+    var l=look(s,k),cy=r1(k*38+19);rowLabel(g,s.name,cy,B.chars);
     cols.forEach(function(lab){
       var p=maps[k][lab],px=r1(x(lab));
       if(!p){g.appendChild(N.gapEl(uid,px-5,cy-9,10,18,N.gapText(s,lab),o));return}
@@ -130,13 +149,13 @@ function dotTimelineSvg(d3,spec,o){
 }
 // ---- Heatmap: rows are series, columns are labels; shade and the printed number both carry the value ----
 function heatmapSvg(d3,spec,o,host){
-  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,n,30);
-  if(cols.length*(o.narrow?36:34)>B.iw)return rankedList(host,spec,NARROW_WHY);
+  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,spec.series.map(function(s){return s.name}),n,30);
+  if(cols.length*34>B.iw)return rankedList(host,spec,NARROW_WHY);
   var e=extent(spec.series),shade=d3.scaleLinear().domain([e[0],e[1]===e[0]?e[0]+1:e[1]]).range([.15,1]),cw=B.iw/cols.length,xs=function(l){return cols.indexOf(l)*cw};
   var s0=begin(spec,B.W,B.H,B.m,o),svg=s0.svg,g=s0.g,uid=s0.uid,maps=spec.series.map(mapOf);
-  xTicks(g,cols,function(l){return xs(l)+cw/2},B.ih+18);
+  xTicks(g,fitOf(cols,function(l){return xs(l)+cw/2}),B.ih+18);
   spec.series.forEach(function(s,k){
-    var cy=k*30;rowLabel(g,s.name,cy+15,o);
+    var cy=k*30;rowLabel(g,s.name,cy+15,B.chars);
     cols.forEach(function(lab){
       var p=maps[k][lab];
       if(!p){g.appendChild(N.gapEl(uid,xs(lab)+1,cy+1,cw-2,28,N.gapText(s,lab),o));return}
@@ -149,13 +168,13 @@ function heatmapSvg(d3,spec,o,host){
 }
 // ---- Gantt: one row per entity; a bar for each period, thicker for a higher count; a missing period is a visible break ----
 function ganttSvg(d3,spec,o,host){
-  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,n,32);
-  if(cols.length*(o.narrow?30:26)>B.iw)return rankedList(host,spec,NARROW_WHY);
+  var cols=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,B=rowBox(o,spec.series.map(function(s){return s.name}),n,32);
+  if(cols.length*26>B.iw)return rankedList(host,spec,NARROW_WHY);
   var maxV=Math.max.apply(null,extent(spec.series)),thick=d3.scaleLinear().domain([0,maxV||1]).range([4,20]),cw=B.iw/cols.length,xs=function(l){return cols.indexOf(l)*cw};
   var s0=begin(spec,B.W,B.H,B.m,o),svg=s0.svg,g=s0.g,uid=s0.uid,maps=spec.series.map(mapOf);
-  xTicks(g,cols,function(l){return xs(l)+cw/2},B.ih+18);
+  xTicks(g,fitOf(cols,function(l){return xs(l)+cw/2}),B.ih+18);
   spec.series.forEach(function(s,k){
-    var l=look(s,k),cy=k*32+16;rowLabel(g,s.name,cy,o);
+    var l=look(s,k),cy=k*32+16;rowLabel(g,s.name,cy,B.chars);
     cols.forEach(function(lab){
       var p=maps[k][lab];
       if(!p){g.appendChild(N.gapEl(uid,xs(lab)+1,cy-9,cw-2,18,N.gapText(s,lab),o));return}
@@ -169,14 +188,16 @@ function ganttSvg(d3,spec,o,host){
 }
 // ---- Scatter, and connected scatter (joined in the order given) ----
 function scatterSvg(d3,spec,o){
-  var B=T.box(o.narrow),W=B.W,m={top:B.m.top+14,right:B.m.right+4,bottom:B.m.bottom+8,left:B.m.left},H=B.H+22,iw=W-m.left-m.right,ih=H-m.top-m.bottom,conn=spec.type==="connected_scatter";
+  var conn=spec.type==="connected_scatter";
   var xs=[],ys=[];spec.series.forEach(function(s){s.points.forEach(function(p){xs.push(p.x);ys.push(p.value)});(s.band||[]).forEach(function(b){ys.push(b.lower,b.upper)})});
   var dx=domainOf(spec.xUnits,Math.min.apply(null,xs),Math.max.apply(null,xs)),dy=domainOf(spec.units,Math.min.apply(null,ys),Math.max.apply(null,ys));
+  var B=T.layoutBox(o.width,"plot",{top:14,leftChars:widest(dy.ticks,function(v){return T.axisFormat(spec.units,v)})}),W=B.W,m={top:B.m.top,right:B.m.right+4,bottom:B.m.bottom+8,left:B.m.left},H=B.H+22,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
   var x=d3.scaleLinear().domain([dx.a,dx.b]).range([0,iw]),y=d3.scaleLinear().domain([dy.a,dy.b]).range([ih,0]);
   var s0=begin(spec,W,H,m,o),svg=s0.svg,g=s0.g,uid=s0.uid;
   var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
   dy.ticks.forEach(function(v){var py=r1(y(v));axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end","class":"chart-tick-left",style:tickStyle()},T.axisFormat(spec.units,v)))});
-  dx.ticks.forEach(function(v){var px=r1(x(v));axes.appendChild(svgEl("line",{x1:px,x2:px,y1:0,y2:ih,"class":"chart-grid",style:"stroke:"+T.grid}));axes.appendChild(svgEl("text",{x:px,y:ih+16,"text-anchor":"middle","class":"chart-vtick",style:tickStyle()},T.axisFormat(spec.xUnits,v)))});
+  var keepX=valueTicks(dx.ticks,x,function(v){return T.axisFormat(spec.xUnits,v)},iw);
+  dx.ticks.forEach(function(v){var px=r1(x(v));axes.appendChild(svgEl("line",{x1:px,x2:px,y1:0,y2:ih,"class":"chart-grid",style:"stroke:"+T.grid}));if(keepX[px])axes.appendChild(svgEl("text",{x:px,y:ih+16,"text-anchor":"middle","class":"chart-vtick",style:tickStyle()},keepX[px]))});
   axisTitle(g,-m.left+4,-16,"start",spec.units+" (up)");axisTitle(g,iw,ih+34,"end",spec.xUnits+" (across)");
   var few=N.total(spec)<=14,ends=[],where={};
   spec.series.forEach(function(s,k){
@@ -186,7 +207,7 @@ function scatterSvg(d3,spec,o){
       var px=r1(x(p.x)),py=r1(y(p.value)),bd=N.bandOf(s,p.label);if(where[p.label]===undefined)where[p.label]=px;
       if(bd)gs.appendChild(N.whisker("v",px,y(bd.upper),y(bd.lower)));
       gs.appendChild(pt(N.markerEl(l.marker==="none"?"circle":l.marker,px,py,est(s)?"fill:var(--bg);stroke:"+l.color+";stroke-width:2":"fill:"+l.color+";stroke:var(--bg);stroke-width:1",1.2,"chart-pt"),N.pointText(spec,s,p),o));
-      if(few||(conn&&(i===0||i===s.points.length-1))){var lt=short(p.label,o.narrow?12:20),flip=px+8+lt.length*6.6>iw;haloLabel(gs,flip?px-8:px+8,py-8,lt,flip?"end":"start",l.color,"chart-label chart-end")}
+      if(few||(conn&&(i===0||i===s.points.length-1))){var lt=short(p.label,Math.max(8,Math.min(20,T.chars(iw*0.3)))),flip=px+8+lt.length*6.6>iw;haloLabel(gs,flip?px-8:px+8,py-8,lt,flip?"end":"start",l.color,"chart-label chart-end")}
     });
     if(!few&&!conn){var last=s.points[s.points.length-1];ends.push({color:l.color,x:r1(x(last.x)),y:r1(y(last.value)),text:s.name})}
   });
@@ -196,7 +217,7 @@ function scatterSvg(d3,spec,o){
 }
 // ---- Beeswarm: one row per group; each label a dot at its value, nudged sideways so none overlap (a fixed sweep, no randomness) ----
 function beeswarmSvg(d3,spec,o){
-  var n=spec.series.length,rad=o.narrow?3.5:4.5,Bx=rowBox(o,1,10),e=extent(spec.series),dom=domainOf(spec.units,e[0],e[1]),x=d3.scaleLinear().domain([dom.a,dom.b]).range([0,Bx.iw]);
+  var n=spec.series.length,names=spec.series.map(function(s){return s.name}),rad=Math.max(3.5,Math.min(4.5,T.widthOf(o.width)/140)),Bx=rowBox(o,names,1,10),e=extent(spec.series),dom=domainOf(spec.units,e[0],e[1]),x=d3.scaleLinear().domain([dom.a,dom.b]).range([0,Bx.iw]);
   var rows=spec.series.map(function(s){
     var placed=[],order=s.points.slice().sort(function(a,b){return a.value-b.value||cmp(a.label,b.label)});
     order.forEach(function(p){
@@ -211,29 +232,29 @@ function beeswarmSvg(d3,spec,o){
   });
   var half=rows.map(function(r){return r.reduce(function(m,q){return Math.max(m,Math.abs(q.y))},0)+rad+10}),tops=[],acc=0;
   half.forEach(function(h){tops.push(acc+h);acc+=2*h});
-  var B=rowBox(o,1,acc);B.ih=acc;B.H=B.m.top+acc+B.m.bottom;
+  var B=rowBox(o,names,1,acc),lc=Math.max(8,Math.min(20,T.chars(B.iw*0.3)));
   var s0=begin(spec,B.W,B.H,B.m,o),svg=s0.svg,g=s0.g;
   vAxis(g,x,dom,spec.units,B.iw,B.ih);
   spec.series.forEach(function(s,k){
     var l=look(s,k),cy=r1(tops[k]),gs=svgEl("g",{"class":"chart-series"});g.appendChild(gs);
     gs.appendChild(svgEl("line",{x1:0,x2:r1(B.iw),y1:cy,y2:cy,style:"stroke:"+T.grid+";stroke-dasharray:2 3"}));
-    rowLabel(g,s.name,cy,o);
+    rowLabel(g,s.name,cy,B.chars);
     var top=null;
     rows[k].forEach(function(q){
       gs.appendChild(pt(N.markerEl(l.marker==="none"?"circle":l.marker,r1(q.x),r1(cy+q.y),est(s)?"fill:var(--bg);stroke:"+l.color+";stroke-width:2":"fill:"+l.color+";stroke:var(--bg);stroke-width:1",rad/4,"chart-pt"),N.pointText(spec,s,q.p),o));
       if(!top||q.p.value>top.p.value)top=q;
     });
-    if(top)haloLabel(gs,top.x<B.iw-60?top.x+8:top.x-8,cy+top.y-8,short(top.p.label,o.narrow?12:20)+" "+T.shortFormat(unitsOf(spec,s),top.p.value),top.x<B.iw-60?"start":"end",l.color,"chart-label chart-end");
+    if(top)haloLabel(gs,top.x<B.iw-60?top.x+8:top.x-8,cy+top.y-8,short(top.p.label,lc)+" "+T.shortFormat(unitsOf(spec,s),top.p.value),top.x<B.iw-60?"start":"end",l.color,"chart-label chart-end");
   });
   if(spec.annotations&&!o.noNotes)N.annotate(g,spec,{xOf:function(){return undefined},half:0,y:null,iw:B.iw,ih:B.ih});
   return svg;
 }
 // ---- Ridgeline: one filled curve per group over the same bins, all on one scale ----
 function ridgelineSvg(d3,spec,o){
-  var bins=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,step=o.narrow?46:56,B0=T.box(o.narrow),W=B0.W,m={top:30,right:B0.m.right+6,bottom:B0.m.bottom,left:o.narrow?84:130},iw=W-m.left-m.right,H=m.top+(n+1)*step+m.bottom,ih=H-m.top-m.bottom;
+  var bins=N.xAxisLabels(spec.type,spec.series,spec.labels),n=spec.series.length,step=Math.max(46,Math.min(56,Math.round(T.widthOf(o.width)/11.4))),RB=rowBox(o,spec.series.map(function(s){return s.name}),0,0),W=RB.W,m={top:30,right:RB.m.right+6,bottom:T.fontSize*3+8,left:RB.m.left},iw=W-m.left-m.right,H=m.top+(n+1)*step+m.bottom,ih=H-m.top-m.bottom;
   var maxV=Math.max.apply(null,extent(spec.series)),hs=d3.scaleLinear().domain([0,maxV||1]).range([0,step*1.7]),x=d3.scalePoint().domain(bins).range([0,iw]).padding(.1);
   var s0=begin(spec,W,H,m,o),svg=s0.svg,g=s0.g,uid=s0.uid,maps=spec.series.map(mapOf);
-  xTicks(g,bins,x,ih+18);
+  xTicks(g,fitOf(bins,x),ih+18);
   spec.series.forEach(function(s,k){
     var l=look(s,k),base=r1((k+1)*step+step*.4),gs=svgEl("g",{"class":"chart-series"}),pts=bins.map(function(lab){var p=maps[k][lab];return p?[r1(x(lab)),r1(base-hs(p.value))]:null});
     g.appendChild(gs);
@@ -247,7 +268,7 @@ function ridgelineSvg(d3,spec,o){
       if(!p){gs.appendChild(N.gapEl(uid,x(lab)-4,base-14,8,14,N.gapText(s,lab),o));return}
       gs.appendChild(pt(svgEl("circle",{cx:pts[i][0],cy:pts[i][1],r:3,"class":"chart-pt",style:est(s)?"fill:var(--bg);stroke:"+l.color+";stroke-width:2":"fill:"+l.color+";stroke:var(--bg);stroke-width:1"}),N.pointText(spec,s,p),o));
     });
-    rowLabel(g,s.name,base-4,o);
+    rowLabel(g,s.name,base-4,RB.chars);
   });
   // one scale bar for every row, labelled with the tallest value
   g.appendChild(svgEl("line",{x1:r1(iw),x2:r1(iw),y1:0,y2:r1(hs(maxV)),"class":"chart-scalebar",style:"stroke:var(--chart-text);stroke-width:1.5"}));
@@ -257,7 +278,7 @@ function ridgelineSvg(d3,spec,o){
 }
 // ---- Treemap: one rectangle per label, area for the value, outlined in groups ----
 function treemapSvg(d3,spec,o){
-  var B=T.box(o.narrow),W=B.W,H=o.narrow?320:380,s=spec.series[0],groups=[];
+  var W=T.widthOf(o.width),H=Math.round(Math.max(300,Math.min(480,W*0.6))),s=spec.series[0],groups=[];
   s.points.forEach(function(p){if(p.group!==undefined&&groups.indexOf(p.group)<0)groups.push(p.group)});
   var tree=groups.length?{name:"",children:groups.map(function(gr){return{name:gr,children:s.points.filter(function(p){return p.group===gr}).map(function(p){return{name:p.label,value:p.value,p:p}})}})}:{name:"",children:s.points.map(function(p){return{name:p.label,value:p.value,p:p}})};
   var root=d3.hierarchy(tree).sum(function(d){return d.value||0}).sort(function(a,b){return b.value-a.value||cmp(a.data.name,b.data.name)});
@@ -283,8 +304,8 @@ function nodesOf(spec){var seen={},out=[];spec.series.forEach(function(s,k){s.po
 function linkWidth(d3,spec,lo,hi){var mx=Math.max.apply(null,spec.links.map(function(l){return Math.max(l.value,l.upper===undefined?0:l.upper)}));return d3.scaleLinear().domain([0,mx||1]).range([lo,hi])}
 // Arcs: nodes along a line in the order given; every link an arc above it, with an arrow head at its target; a range as a wider faint arc behind.
 function arcsSvg(d3,spec,o,host){
-  var nodes=nodesOf(spec),B0=T.box(o.narrow),W=B0.W,m={top:20,right:20,bottom:o.narrow?110:100,left:20},iw=W-m.left-m.right;
-  if(nodes.length*(o.narrow?20:16)>iw)return rankedList(host,spec,NARROW_WHY);
+  var nodes=nodesOf(spec),W=T.widthOf(o.width),longest=nodes.reduce(function(n,nd){return Math.max(n,Math.min(18,nd.label.length))},4),m={top:20,right:20,bottom:Math.ceil(longest*T.fontSize*T.charEm*0.77)+24,left:20},iw=W-m.left-m.right;
+  if(nodes.length*18>iw)return rankedList(host,spec,NARROW_WHY);
   var xs={};nodes.forEach(function(nd,i){xs[nd.label]=r1(nodes.length>1?i*iw/(nodes.length-1):iw/2)});
   var ry=function(a,b){return Math.abs(xs[a]-xs[b])/2*.55},tall=Math.max.apply(null,spec.links.map(function(l){return ry(l.source,l.target)})),H=m.top+tall+m.bottom,by=r1(tall),wid=linkWidth(d3,spec,1.5,8);
   var rad=d3.scaleSqrt().domain([0,Math.max.apply(null,nodes.map(function(nd){return nd.p.value}))||1]).range([4,10]);
@@ -309,7 +330,7 @@ function arcsSvg(d3,spec,o,host){
 function bipartiteSvg(d3,spec,o){
   var nodes=nodesOf(spec),from={},to={};spec.links.forEach(function(l){from[l.source]=true;to[l.target]=true});
   var left=nodes.filter(function(nd){return to[nd.label]!==true}),right=nodes.filter(function(nd){return to[nd.label]===true}),rh=26,rows=Math.max(left.length,right.length);
-  var W=o.narrow?360:640,m={top:16,right:o.narrow?100:150,bottom:16,left:o.narrow?100:150},iw=W-m.left-m.right,H=m.top+rows*rh+m.bottom,wid=linkWidth(d3,spec,1.5,10),pos={};
+  var W=T.widthOf(o.width),longest=nodes.reduce(function(n,nd){return Math.max(n,Math.min(22,nd.label.length))},4),side=Math.max(56,Math.min(Math.ceil(longest*T.fontSize*T.charEm)+24,Math.floor(W*0.3))),chars=Math.max(4,Math.floor((side-18)/(T.fontSize*T.charEm))),m={top:16,right:side,bottom:16,left:side},iw=W-m.left-m.right,H=m.top+rows*rh+m.bottom,wid=linkWidth(d3,spec,1.5,10),pos={};
   left.forEach(function(nd,i){pos[nd.label]={x:0,y:r1(i*rh+rh/2)}});right.forEach(function(nd,i){pos[nd.label]={x:r1(iw),y:r1(i*rh+rh/2)}});
   var svg=rootSvg(W,H,spec.title),g=svgEl("g",{transform:"translate("+m.left+","+m.top+")"});svg.appendChild(g);
   var colorOf={};left.forEach(function(nd,i){colorOf[nd.label]=T.color(i)});
@@ -321,7 +342,7 @@ function bipartiteSvg(d3,spec,o){
   function column(list,side){list.forEach(function(nd){
     var p=pos[nd.label],l=look(nd.s,nd.k);
     g.appendChild(pt(svgEl("rect",{x:p.x-5,y:r1(p.y-8),width:10,height:16,"class":"chart-node chart-pt",style:"fill:"+(side==="left"?colorOf[nd.label]:l.color)+";stroke:var(--bg);stroke-width:1"}),N.pointText(spec,nd.s,nd.p),o));
-    g.appendChild(svgEl("text",{x:side==="left"?p.x-10:p.x+10,y:p.y,dy:"0.32em","text-anchor":side==="left"?"end":"start","class":"chart-label",style:"fill:var(--chart-text);font-size:"+T.fontSize+"px"},short(nd.label,o.narrow?13:22)));
+    g.appendChild(svgEl("text",{x:side==="left"?p.x-10:p.x+10,y:p.y,dy:"0.32em","text-anchor":side==="left"?"end":"start","class":"chart-label",style:"fill:var(--chart-text);font-size:"+T.fontSize+"px"},short(nd.label,chars)));
   })}
   column(left,"left");column(right,"right");
   if(spec.annotations&&!o.noNotes)N.annotate(g,spec,{xOf:function(){return undefined},half:0,y:null,iw:iw,ih:rows*rh});
@@ -342,9 +363,9 @@ function loadSankey(d3){
   return skp;
 }
 function sankeySvg(d3,spec,o,host){
-  if(o.narrow)return rankedList(host,spec,NARROW_WHY);
+  if(T.widthOf(o.width)<420)return rankedList(host,spec,NARROW_WHY);
   return loadSankey(d3).then(function(D){
-    var nodes=nodesOf(spec),W=640,H=380,m={top:10,right:130,bottom:10,left:10},iw=W-m.left-m.right,ih=H-m.top-m.bottom;
+    var nodes=nodesOf(spec),W=T.widthOf(o.width),H=Math.round(Math.max(320,Math.min(480,W*0.6))),m={top:10,right:Math.round(Math.min(130,W*0.2)),bottom:10,left:10},iw=W-m.left-m.right,ih=H-m.top-m.bottom,nameChars=Math.max(8,Math.min(20,T.chars(iw*0.45)-7));
     var graph={nodes:nodes.map(function(nd){return{name:nd.label}}),links:spec.links.map(function(l){return{source:l.source,target:l.target,value:l.value,l:l}})};
     var lay;
     try{lay=D.sankey().nodeId(function(d){return d.name}).nodeWidth(14).nodePadding(12).extent([[0,0],[iw,ih]])(graph)}
@@ -360,7 +381,7 @@ function sankeySvg(d3,spec,o,host){
     lay.nodes.forEach(function(nd){
       var src=nodes[by[nd.name]],l=look(src.s,src.k),right=nd.x0>iw/2;
       g.appendChild(pt(svgEl("rect",{x:r1(nd.x0),y:r1(nd.y0),width:r1(nd.x1-nd.x0),height:r1(Math.max(1,nd.y1-nd.y0)),"class":"chart-node chart-pt",style:"fill:"+l.color+";stroke:var(--bg);stroke-width:1"}),N.pointText(spec,src.s,src.p),o));
-      haloLabel(g,right?nd.x0-6:nd.x1+6,(nd.y0+nd.y1)/2+4,short(nd.name,20)+" "+T.shortFormat(unitsOf(spec,src.s),src.p.value),right?"end":"start","var(--chart-text)","chart-label chart-end");
+      haloLabel(g,right?nd.x0-6:nd.x1+6,(nd.y0+nd.y1)/2+4,short(nd.name,nameChars)+" "+T.shortFormat(unitsOf(spec,src.s),src.p.value),right?"end":"start","var(--chart-text)","chart-label chart-end");
     });
     if(spec.annotations&&!o.noNotes)N.annotate(g,spec,{xOf:function(){return undefined},half:0,y:null,iw:iw,ih:ih});
     host.appendChild(svg);
@@ -372,7 +393,7 @@ function panelsDiv(d3,host,spec,o){
   N.setsOf(spec).forEach(function(set,i){
     var last=i===spec.panels.length-1,part=el("div","chart-panel"),label=set.title+" ("+set.units+")";
     part.appendChild(el("p","chart-panel-title",set.title));
-    var sub=Object.assign({},set,{annotations:i===0?spec.annotations:undefined}),po={narrow:o.narrow,rove:o.rove,seq:o.seq,height:o.narrow?210:230,xLabels:last,label:label,part:"p"+i};
+    var sub=Object.assign({},set,{annotations:i===0?spec.annotations:undefined}),po={width:o.width,rove:o.rove,seq:o.seq,height:Math.round(Math.max(200,Math.min(240,o.width*0.36))),xLabels:last,label:label,part:"p"+i};
     var svg=set.type==="line"||set.type==="area"?N.lineSvg(d3,sub,po):barSvg(d3,sub,po);
     o.seq=po.seq;part.appendChild(svg);box.appendChild(part);
   });
@@ -381,7 +402,7 @@ var MARKS={bar:barSvg,stacked_bar:barSvg,stacked_100:barSvg,lollipop:lollipopSvg
 // Draws spec into host. Returns a promise only when an add-on has to load first (Sankey).
 function draw(d3,host,spec,o){
   o=o||{};
-  if(o.narrow===undefined)o.narrow=host.clientWidth>0&&host.clientWidth<480;
+  o.width=T.widthOf(o.width||host.clientWidth||0);
   o.rove=N.total(spec)>80;
   if(spec.panels)return panelsDiv(d3,host,spec,o);
   if(spec.type==="line"||spec.type==="area")return host.appendChild(N.lineSvg(d3,spec,o));

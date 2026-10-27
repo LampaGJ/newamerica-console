@@ -23,11 +23,11 @@ function check(s){
   if(s.version!==undefined&&s.version!==2)return"a version of this chart that this page cannot draw";
   if(!str(s.title,200)||!str(s.units,40))return"missing title or units";
   if(typeof s.asOf!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s.asOf))return"bad as-of date";
-  if(!Array.isArray(s.series)||s.series.length<1||s.series.length>8)return"bad series list";
+  if(!Array.isArray(s.series)||s.series.length<1||s.series.length>12)return"bad series list";
   for(var i=0;i<s.series.length;i++){
     var r=s.series[i];
     if(!r||!str(r.name,80)||!r.source||!str(r.source.label,120)||!https(r.source.url))return"series "+i+" has no name or source link";
-    if(!Array.isArray(r.points)||r.points.length<1||r.points.length>60)return"series "+i+" has no points";
+    if(!Array.isArray(r.points)||r.points.length<1||r.points.length>120)return"series "+i+" has no points";
     for(var j=0;j<r.points.length;j++){
       var p=r.points[j];
       if(!p||!str(p.label,80)||typeof p.value!=="number"||!isFinite(p.value))return"series "+i+" has a bad point";
@@ -39,15 +39,15 @@ function check(s){
     if(r.style!==undefined&&(!r.style||typeof r.style!=="object"||!oneOf(r.style.color,COLORS)||!oneOf(r.style.dash,DASHES)||!oneOf(r.style.marker,MARKERS)))return"series "+i+" has a bad style";
     if(r.estimate!==undefined&&typeof r.estimate!=="boolean")return"series "+i+" has a bad estimate flag";
     if(r.band!==undefined){
-      if(!Array.isArray(r.band)||r.band.length<1||r.band.length>60)return"series "+i+" has a bad band";
+      if(!Array.isArray(r.band)||r.band.length<1||r.band.length>120)return"series "+i+" has a bad band";
       for(var b=0;b<r.band.length;b++){var bd=r.band[b];if(!bd||!str(bd.label,80)||typeof bd.lower!=="number"||typeof bd.upper!=="number"||!isFinite(bd.lower)||!isFinite(bd.upper))return"series "+i+" has a bad band"}
     }
     if(r.coverage!==undefined){
-      if(!Array.isArray(r.coverage)||r.coverage.length<1||r.coverage.length>60)return"series "+i+" has bad coverage";
+      if(!Array.isArray(r.coverage)||r.coverage.length<1||r.coverage.length>120)return"series "+i+" has bad coverage";
       for(var c=0;c<r.coverage.length;c++){var cv=r.coverage[c];if(!cv||!str(cv.label,80)||typeof cv.value!=="number"||!(cv.value>=0&&cv.value<=1))return"series "+i+" has bad coverage"}
     }
   }
-  if(s.labels!==undefined&&(!Array.isArray(s.labels)||s.labels.length<1||s.labels.length>60||s.labels.some(function(l){return!str(l,80)})))return"bad labels";
+  if(s.labels!==undefined&&(!Array.isArray(s.labels)||s.labels.length<1||s.labels.length>120||s.labels.some(function(l){return!str(l,80)})))return"bad labels";
   var e=setError(s.type,s.units,s.series,s.labels,"");
   if(e)return e;
   e=shapeError(s);
@@ -74,7 +74,7 @@ function check(s){
     if(!Array.isArray(s.panels)||s.panels.length<1||s.panels.length>12||s.labels===undefined)return"bad panels";
     for(var p=0;p<s.panels.length;p++){
       var pn=s.panels[p];
-      if(!pn||!str(pn.title,80)||PANEL_TYPES.indexOf(pn.type)<0||!str(pn.units,40)||!Array.isArray(pn.series)||pn.series.length<1||pn.series.length>8)return"panel "+p+" is malformed";
+      if(!pn||!str(pn.title,80)||PANEL_TYPES.indexOf(pn.type)<0||!str(pn.units,40)||!Array.isArray(pn.series)||pn.series.length<1||pn.series.length>12)return"panel "+p+" is malformed";
       var pe=setError(pn.type,pn.units,pn.series,s.labels,"panel "+p+": ");
       if(pe)return pe;
     }
@@ -346,11 +346,11 @@ function niceStep(max,k,integer){
   return +(p*1000).toPrecision(12);
 }
 // K and one step per axis. K (4 or 5) is the one with the lowest total blank fraction over both axes (the sum of 1 - max/(step*K));
-// on a tie, the K whose worst axis wastes no more than 40 percent of the height wins, then K = 4. narrow (phone width) fixes K at 4.
+// on a tie, the K whose worst axis wastes no more than 40 percent of the height wins, then K = 4. k4 (a short plot, under 150 pixels high) fixes K at 4.
 function alignedAxes(maxL,maxR,o){
   o=o||{};
   var fit=function(k){var l=niceStep(maxL,k,o.intL),r=niceStep(maxR,k,o.intR),wl=maxL>0?1-maxL/(l*k):0,wr=maxR>0?1-maxR/(r*k):0;return{k:k,left:l,right:r,waste:Math.max(wl,wr),total:wl+wr}};
-  if(o.narrow)return fit(4);
+  if(o.k4)return fit(4);
   var a=fit(4),b=fit(5);
   if(Math.abs(a.total-b.total)>1e-9)return a.total<b.total?a:b;
   if((a.waste>0.4)!==(b.waste>0.4))return a.waste>0.4?b:a;
@@ -364,23 +364,28 @@ function runsOf(pts){var out=[],cur=null;pts.forEach(function(p,i){if(p===null){
 function polyPath(top,bottom){return"M"+top.map(function(p){return p.join(",")}).join("L")+"L"+bottom.slice().reverse().map(function(p){return p.join(",")}).join("L")+"Z"}
 // A line chart with an optional right axis (issue #190), or an area chart. Both axes start at zero and share one set of tick heights (alignedAxes): the gridlines are drawn
 // once, from the left axis, and the right axis is labelled at the same heights. D3 provides the point scale and the line paths; the elements are made
-// directly so the same function runs under a test DOM. o.narrow: phone width (K = 4, a smaller picture). A two-axis spec with a value below zero draws two stacked panels instead.
+// directly so the same function runs under a test DOM. o.width: the picture width in pixels (the layout is a pure function of it, T.layoutBox); o.height: a fixed height (a plot under 150 pixels high gets K = 4). A two-axis spec with a value below zero draws two stacked panels instead.
 // A version 2 spec also gets keyboard stops, ranges as bands, estimates drawn hollow, gaps named, annotations and (area) a fill; a version 1 spec is drawn exactly as before.
 function lineSvg(d3,spec,o){
   o=o||{};
   var right=spec.series.filter(function(s){return s.axis==="right"});
-  if(right.length&&hasNegative(spec))return panelsSvg(d3,spec);
-  var v2=spec.version===2,T=window.NAChartTheme,D=o.narrow?T.narrowDual:T.dual,W=D.width,H=o.height||D.height,m=D.margin,iw=W-m.left-m.right,ih=H-m.top-m.bottom;
-  var ref=rowLabels(spec);
+  if(right.length&&hasNegative(spec))return panelsSvg(d3,spec,o);
+  var v2=spec.version===2,T=window.NAChartTheme,ref=rowLabels(spec);
   var left=spec.series.filter(function(s){return s.axis!=="right"});
   var rUnits=right.length?unitsOf(spec,right[0]):null;
   var count=function(u){return!/dollar/i.test(u)};
-  var ax=right.length?alignedAxes(maxValue(left),maxValue(right),{narrow:o.narrow,intL:count(spec.units),intR:count(rUnits)}):null;
-  var yL,yR=null,K;
-  if(ax){K=ax.k;yL=d3.scaleLinear().domain([0,ax.left*K]).range([ih,0]);yR=d3.scaleLinear().domain([0,ax.right*K]).range([ih,0])}
-  else{var one=alignedAxes(maxValue(left),0,{narrow:o.narrow,intL:count(spec.units)});K=one.k;yL=d3.scaleLinear().domain([0,one.left*K]).range([ih,0]);ax={k:K,left:one.left,right:null}}
+  // the plot height does not depend on the margins, so the tick count K can be chosen before the margins (which depend on the tick labels)
+  var W0=T.widthOf(o.width||T.defaultWidth),B0=T.layoutBox(W0,"dual",{top:18,slim:true}),H=o.height||B0.H,k4=H-B0.m.top-B0.m.bottom<150;
+  var ax=right.length?alignedAxes(maxValue(left),maxValue(right),{k4:k4,intL:count(spec.units),intR:count(rUnits)}):alignedAxes(maxValue(left),0,{k4:k4,intL:count(spec.units)});
+  var K=ax.k,widest=function(units,step){var n=0;for(var q=0;q<=K;q++)n=Math.max(n,T.axisFormat(units,+(step*q).toPrecision(12)).length);return n};
+  var leftTitle=left.map(function(s){return s.name}).join(", ")+" ("+spec.units+")"+(right.length?", left axis":""),rightTitle=right.length?right.map(function(s){return s.name}).join(", ")+" ("+rUnits+"), right axis":"";
+  // two axis titles that would meet on one line are stacked, the left one above
+  var stack=right.length>0&&T.textWidth(leftTitle)+T.textWidth(rightTitle)+24>W0-8;
+  var D=T.layoutBox(W0,"dual",{top:18+(stack?14:0),leftChars:widest(spec.units,ax.left),rightChars:right.length?widest(rUnits,ax.right):0,slim:true}),W=D.W,m=D.m,iw=D.iw,ih=H-m.top-m.bottom;
+  var yL=d3.scaleLinear().domain([0,ax.left*K]).range([ih,0]),yR=right.length?d3.scaleLinear().domain([0,ax.right*K]).range([ih,0]):null;
+  if(!right.length)ax={k:K,left:ax.left,right:null};
   var x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
-  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:v2?"group":"img","aria-label":o.label||spec.title,"class":"chart-svg",style:"max-width:"+W+"px;height:auto"});
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:v2?"group":"img","aria-label":o.label||spec.title,"class":"chart-svg",style:"height:auto"});
   var uid=uidOf(spec,o.part);
   if(v2)svg.appendChild(patternDefs(uid,spec.series));
   var g=svgEl("g",{transform:"translate("+m.left+","+m.top+")"});svg.appendChild(g);
@@ -392,10 +397,10 @@ function lineSvg(d3,spec,o){
     axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end","class":"chart-tick-left",style:tickStyle},T.axisFormat(spec.units,+(ax.left*i).toPrecision(12))));
     if(yR)axes.appendChild(svgEl("text",{x:iw+8,y:py,dy:"0.32em","text-anchor":"start","class":"chart-tick-right",style:tickStyle},T.axisFormat(rUnits,+(ax.right*i).toPrecision(12))));
   }
-  if(o.xLabels!==false)T.tickLabels(ref).forEach(function(l){axes.appendChild(svgEl("text",{x:r1(x(l)),y:ih+20,"text-anchor":"middle","class":v2?"chart-xtick":null,style:tickStyle},l))});
+  if(o.xLabels!==false)T.fitTicks(ref.map(function(l){return{label:l,x:x(l)}})).ticks.forEach(function(t){axes.appendChild(svgEl("text",{x:r1(t.x),y:ih+20,"text-anchor":"middle","class":v2?"chart-xtick":null,style:tickStyle},t.text))});
   var titleStyle="fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600";
-  axes.appendChild(svgEl("text",{x:-m.left+4,y:-14,"text-anchor":"start",style:titleStyle,"class":"chart-axis-title"},left.map(function(s){return s.name}).join(", ")+" ("+spec.units+")"+(right.length?", left axis":"")));
-  if(right.length)axes.appendChild(svgEl("text",{x:iw+m.right-4,y:-14,"text-anchor":"end",style:titleStyle,"class":"chart-axis-title"},right.map(function(s){return s.name}).join(", ")+" ("+rUnits+"), right axis"));
+  axes.appendChild(svgEl("text",{x:-m.left+4,y:stack?-28:-14,"text-anchor":"start",style:titleStyle,"class":"chart-axis-title"},leftTitle));
+  if(right.length)axes.appendChild(svgEl("text",{x:iw+m.right-4,y:-14,"text-anchor":"end",style:titleStyle,"class":"chart-axis-title"},rightTitle));
   var ends=[],c=v2?{spec:spec,o:o,uid:uid,ih:ih,half:ref.length>1?(x(ref[1])-x(ref[0]))/2:iw/2,fill:spec.type==="area"}:null;
   spec.series.forEach(function(s,k){
     var y=s.axis==="right"?yR:yL,l=look(s,k),u=unitsOf(spec,s);
@@ -438,24 +443,33 @@ function endLabels(g,ends,T){
   });
 }
 // The fallback for a two-axis spec with a value below zero: one panel per axis group, stacked, each with its own nice scale through zero, and a line saying so.
-function panelsSvg(d3,spec){
-  var T=window.NAChartTheme,D=T.dual,W=D.width,m=D.margin,iw=W-m.left-m.right,ph=130,gap=44,top=40;
-  var ref=labelsOf(refSeries(spec)),x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
+function panelsSvg(d3,spec,o){
+  o=o||{};
+  var T=window.NAChartTheme,ph=130,gap=44,top=40;
   var groups=[spec.series.filter(function(s){return s.axis!=="right"}),spec.series.filter(function(s){return s.axis==="right"})];
-  var H=top+2*ph+gap+34;
-  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"img","aria-label":spec.title+". "+FALLBACK_NOTE,"class":"chart-svg chart-panels",style:"max-width:"+W+"px;height:auto"});
-  svg.appendChild(svgEl("text",{x:4,y:14,"class":"chart-fallback",style:"fill:"+T.muted+";font-size:"+T.fontSize+"px"},FALLBACK_NOTE));
-  var tickStyle="fill:"+T.muted+";font-size:"+T.fontSize+"px",k0=0;
-  groups.forEach(function(ss,gi){
+  // each panel's scale first: the margin at the left comes from the widest tick label of either panel
+  var scales=groups.map(function(ss){
     var u=unitsOf(spec,ss[0]),lo=0,hi=0;
     ss.forEach(function(s){s.points.forEach(function(p){if(p.value<lo)lo=p.value;if(p.value>hi)hi=p.value})});
     var st=niceStep(hi-lo||1,4,!/dollar/i.test(u)),a=Math.floor(lo/st)*st,b=Math.ceil(hi/st)*st;if(a===b)b=a+st;
-    var y=d3.scaleLinear().domain([a,b]).range([ph,0]);
+    var ticks=[];for(var t=a;t<=b+st/2;t+=st)ticks.push(+t.toPrecision(12));
+    return{u:u,a:a,b:b,ticks:ticks};
+  });
+  var chars=0;scales.forEach(function(sc){sc.ticks.forEach(function(v){chars=Math.max(chars,T.axisFormat(sc.u,v).length)})});
+  var D=T.layoutBox(o.width||T.defaultWidth,"plot",{leftChars:chars}),W=D.W,m=D.m,iw=D.iw;
+  var ref=labelsOf(refSeries(spec)),x=d3.scalePoint().domain(ref).range([0,iw]).padding(.5);
+  var H=top+2*ph+gap+34;
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",role:"img","aria-label":spec.title+". "+FALLBACK_NOTE,"class":"chart-svg chart-panels",style:"height:auto"});
+  svg.appendChild(svgEl("text",{x:4,y:14,"class":"chart-fallback",style:"fill:"+T.muted+";font-size:"+T.fontSize+"px"},FALLBACK_NOTE));
+  var tickStyle="fill:"+T.muted+";font-size:"+T.fontSize+"px",k0=0;
+  groups.forEach(function(ss,gi){
+    var sc=scales[gi],u=sc.u;
+    var y=d3.scaleLinear().domain([sc.a,sc.b]).range([ph,0]);
     var g=svgEl("g",{transform:"translate("+m.left+","+(top+gi*(ph+gap))+")","class":"chart-panel"});svg.appendChild(g);
     var axes=svgEl("g",{"class":"chart-axes","aria-hidden":"true"});g.appendChild(axes);
-    for(var t=a;t<=b+st/2;t+=st){var v=+t.toPrecision(12),py=r1(y(v));axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end",style:tickStyle},T.axisFormat(u,v)))}
+    sc.ticks.forEach(function(v){var py=r1(y(v));axes.appendChild(svgEl("line",{x1:0,x2:iw,y1:py,y2:py,"class":"chart-grid",style:"stroke:"+(v===0?T.muted:T.grid)}));axes.appendChild(svgEl("text",{x:-8,y:py,dy:"0.32em","text-anchor":"end",style:tickStyle},T.axisFormat(u,v)))});
     axes.appendChild(svgEl("text",{x:-m.left+4,y:-8,"text-anchor":"start","class":"chart-axis-title",style:"fill:"+T.text+";font-size:"+T.fontSize+"px;font-weight:600"},ss.map(function(s){return s.name}).join(", ")+" ("+u+")"));
-    if(gi===1)T.tickLabels(ref).forEach(function(l){axes.appendChild(svgEl("text",{x:r1(x(l)),y:ph+20,"text-anchor":"middle",style:tickStyle},l))});
+    if(gi===1)T.fitTicks(ref.map(function(l){return{label:l,x:x(l)}})).ticks.forEach(function(t){axes.appendChild(svgEl("text",{x:r1(t.x),y:ph+20,"text-anchor":"middle",style:tickStyle},t.text))});
     var ends=[];
     ss.forEach(function(s){drawSeries(d3,g,s,look(s,k0),u,ref,x,y,ends);k0++});
     endLabels(g,ends,T);
@@ -478,11 +492,13 @@ function wireTip(plot,tip){
     e.preventDefault();list[i+d].focus();
   });
 }
-function draw(d3,host,spec){
-  var narrow=host.clientWidth>0&&host.clientWidth<480;
-  if(spec.type==="line"&&!spec.panels)return host.appendChild(lineSvg(d3,spec,{narrow:narrow,rove:total(spec)>80}));
+// width: the picture's width in pixels, the container's measured width unless the caller says (a saved picture is laid out at its own width); an unmeasured container gets the default.
+function widthOfHost(host,o){return window.NAChartTheme.widthOf((o&&o.width)||host.clientWidth||0)}
+function draw(d3,host,spec,o){
+  var width=widthOfHost(host,o);
+  if(spec.type==="line"&&!spec.panels)return host.appendChild(lineSvg(d3,spec,{width:width,rove:total(spec)>80}));
   if(!window.NAChartMarks)throw new Error("chart-marks.js did not load");
-  return window.NAChartMarks.draw(d3,host,spec,{narrow:narrow});
+  return window.NAChartMarks.draw(d3,host,spec,{width:width});
 }
 function total(spec){return setsOf(spec).reduce(function(n,s){return n+s.series.reduce(function(m,r){return m+r.points.length},0)},0)}
 // ---- The note lines under every chart, built once: the screen, the picture's caption, the SVG description and the CSV header all read them (issue #216). ----
@@ -504,6 +520,26 @@ function noteLines(spec){
     if(part.length)lines.push(r.name+": based on part of the data in "+part.join(", ")+".");
   })});
   return lines;
+}
+// The picture follows its container (issue #226): when the container's width changes by 2 pixels or more it is cleared and laid out again at the new width, after the resizing has paused for 150 ms,
+// so dragging a window edge draws once, not on every pixel. The height is held while the new picture is built so nothing below it jumps. Text stays 12 pixels at every width.
+function watch(d3,plot,spec){
+  if(typeof ResizeObserver!=="function"||!plot.removeChild)return;
+  var last=widthOfHost(plot),timer=null,turn=0;
+  var ro=new ResizeObserver(function(){
+    clearTimeout(timer);
+    timer=setTimeout(function(){
+      if(plot.isConnected===false){ro.disconnect();return}
+      var w=plot.clientWidth;
+      if(!w||Math.abs(w-last)<2)return;
+      last=w;var mine=++turn;
+      plot.style.minHeight=plot.offsetHeight+"px";
+      while(plot.firstChild)plot.removeChild(plot.firstChild);
+      var release=function(){if(mine===turn)plot.style.minHeight=""};
+      try{Promise.resolve(draw(d3,plot,spec,{width:w})).then(release,release)}catch(e){release();plot.textContent="The picture could not load, so the numbers are in the table below."}
+    },150);
+  });
+  ro.observe(plot);
 }
 // Builds the figure at once (title, plot area, legend, numbers table, source) and draws the picture when D3 arrives; if D3 cannot load the table stays and opens.
 function render(spec){
@@ -535,10 +571,10 @@ function render(spec){
   fig.appendChild(sp);
   notes.slice(spec.coverageNote?2:1).forEach(function(line){fig.appendChild(el("p","meta chart-extra",line))});
   if(window.NAChartExport&&window.NAChartExport.mount)window.NAChartExport.mount(fig,spec);
-  loadD3().then(function(d3){return draw(d3,plot,spec)}).catch(function(){plot.textContent="The picture could not load, so the numbers are in the table below.";det.open=true});
+  loadD3().then(function(d3){var first=draw(d3,plot,spec);watch(d3,plot,spec);return first}).catch(function(){plot.textContent="The picture could not load, so the numbers are in the table below.";det.open=true});
   return fig;
 }
-window.NAChart={check:check,planError:planError,noteLines:noteLines,gapReason:gapReason,sourcesOf:sourcesOf,render:render,format:fmt,lineSvg:lineSvg,keyWords:keyWords,alignedAxes:alignedAxes,niceStep:niceStep,
+window.NAChart={check:check,planError:planError,noteLines:noteLines,gapReason:gapReason,sourcesOf:sourcesOf,render:render,format:fmt,lineSvg:lineSvg,draw:draw,loadD3:loadD3,keyWords:keyWords,alignedAxes:alignedAxes,niceStep:niceStep,
   svgEl:svgEl,el:el,look:look,table:table,srList:srList,endLabels:endLabels,fmtU:fmtU,unitsOf:unitsOf,xAxisLabels:xAxisLabels,lookup:lookup,r1:r1,labelsOf:labelsOf,
   cellText:cellText,pointText:pointText,gapText:gapText,linkText:linkText,linkValue:linkValue,setsOf:setsOf,pt:pt,markerEl:markerEl,gapEl:gapEl,whisker:whisker,annotate:annotate,
   patternDefs:patternDefs,uidOf:uidOf,bandOf:bandOf,covOf:covOf,PATTERN_WORD:PATTERN_WORD,FAMILY:FAMILY,total:total};
