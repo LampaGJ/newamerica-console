@@ -133,7 +133,7 @@ function health(){
   .finally(function(){clearTimeout(healthTimer);healthTimer=setTimeout(health,30000)});
 }
 //#fmt-start
-// "Oct 31, 2026" from the date part of the healthz value (its own offset, so the day never shifts).
+// "Nov 14, 2026" from the date part of the healthz value (its own offset, so the day never shifts).
 function untilLabel(v){
   var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(v||'');if(!m)return '';
   return new Date(Date.UTC(+m[1],+m[2]-1,+m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
@@ -156,7 +156,7 @@ function statsLine(c){
 function gate(){
   var open=openUntil!==null&&openUntil!==undefined&&Date.parse(openUntil)>Date.now();
   locked=!open&&!token()&&!who&&openUntil!==undefined;
-  var pv=$('preview'),d=untilLabel(openUntil)||'Oct 31, 2026';
+  var pv=$('preview'),d=untilLabel(openUntil)||'Nov 14, 2026';
   // while open, the welcome subhead carries the demo dates; the note above the input only says when it has ended
   pv.hidden=!locked;
   if(locked)pv.textContent='This time-limited demonstration ended on '+d+'.';
@@ -287,7 +287,7 @@ function startersVisit(){try{var n=parseInt(ls(STARTER_KEY),10);if(!(n>=0))n=0;l
 function welcome(){
   var w=el("section","welcome");w.id="welcome";
   w.appendChild(el("h2",null,"What would you like to know?"));
-  w.appendChild(el("p","meta","Ask about New America and its work using plain words in this time-limited demo running through "+(untilLabel(openUntil)||"Oct 31, 2026")+"."));
+  w.appendChild(el("p","meta","Ask about New America and its work using plain words in this time-limited demo running through "+(untilLabel(openUntil)||"Nov 14, 2026")+"."));
   w.appendChild(chips(startersPick(STARTERS,startersVisit())));$("out").appendChild(w);
 }
 var AUTO=window.CSS&&CSS.supports&&CSS.supports("field-sizing","content");
